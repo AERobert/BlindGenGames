@@ -1,0 +1,588 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Accessible Risk v2</title>
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <a href="#current-territory" class="skip-link">Skip to game</a>
+  <div id="live-region" aria-live="assertive" aria-atomic="true" class="sr-only"></div>
+
+  <div class="container">
+    <!-- SETUP SCREEN -->
+    <div id="setup-screen" class="setup-screen">
+      <h1>Accessible Risk</h1>
+      <p>A fully accessible world domination game with keyboard navigation and screen reader support.</p>
+      
+      <label for="player-name">Your Name:</label>
+      <input type="text" id="player-name" value="Commander" maxlength="20">
+      
+      <label for="num-players">Number of Players:</label>
+      <select id="num-players">
+        <option value="2">2 Players</option>
+        <option value="3" selected>3 Players</option>
+        <option value="4">4 Players</option>
+        <option value="5">5 Players</option>
+        <option value="6">6 Players</option>
+      </select>
+      
+      <label for="game-mode">Game Mode:</label>
+      <select id="game-mode">
+        <option value="manual">Manual Claiming</option>
+        <option value="random" selected>Random Territories</option>
+        <option value="random-troops">Random + Auto Troops</option>
+        <option value="spectator">Spectator (All AI)</option>
+      </select>
+      
+      <div class="setup-section">
+        <h3>Speech Settings</h3>
+        <label for="voice-select">Voice:</label>
+        <select id="voice-select"></select>
+        <label for="speech-rate">Speech Rate: <span id="rate-value">1.2</span></label>
+        <input type="range" id="speech-rate" min="0.5" max="3" step="0.1" value="1.2" oninput="document.getElementById('rate-value').textContent=this.value">
+      </div>
+      
+      <div class="setup-section">
+        <h3>Other Settings</h3>
+        <label for="ai-delay">AI Delay: <span id="delay-value">2</span>s</label>
+        <input type="range" id="ai-delay" min="0.5" max="5" step="0.5" value="2" oninput="document.getElementById('delay-value').textContent=this.value">
+        <label class="checkbox-label"><input type="checkbox" id="sound-effects" checked> Sound Effects</label>
+      </div>
+      
+      <div style="margin-top:20px; display:flex; gap:10px; flex-wrap:wrap">
+        <button onclick="game.startGame()">Start Game</button>
+        <button id="resume-btn" class="btn-secondary hidden" onclick="game.resumeGame()">Resume Saved</button>
+        <button class="btn-secondary" onclick="game.showHelp()">Help (?)</button>
+      </div>
+    </div>
+
+    <!-- GAME SCREEN -->
+    <div id="game-screen" class="hidden">
+      <header class="game-header">
+        <h1 class="game-title">Risk</h1>
+        <div class="header-controls">
+          <span id="game-timer">0:00</span>
+          <button class="btn-small" id="toggle-speech-btn" onclick="game.toggleSpeech()">Mute</button>
+          <button class="btn-small" id="toggle-sound-btn" onclick="game.toggleSound()">Sound Off</button>
+          <button class="btn-small" onclick="game.saveToFile()">Save</button>
+          <button class="btn-small" onclick="game.loadFromFile()">Load</button>
+          <button class="btn-small" onclick="game.showHelp()">Help (?)</button>
+        </div>
+      </header>
+
+      <div class="game-main">
+        <div class="territory-panel">
+          <div id="current-territory" class="current-territory" tabindex="0" role="region" aria-label="Current Territory">
+            <span id="territory-name" class="territory-name">Alaska</span>
+            <span id="territory-info" class="territory-info">North America | Unclaimed</span>
+            <div id="source-indicator" class="hidden"></div>
+          </div>
+
+          <nav class="nav-compass" aria-label="Territory Navigation">
+            <button id="nav-northwest"><span>U</span>NW</button>
+            <button id="nav-north"><span>I</span>N</button>
+            <button id="nav-northeast"><span>O</span>NE</button>
+            <button id="nav-west"><span>J</span>W</button>
+            <button class="center-btn" onclick="ui.announceTerritory()"><span>K</span>Here</button>
+            <button id="nav-east"><span>L</span>E</button>
+            <button id="nav-southwest"><span>N</span>SW</button>
+            <button id="nav-south"><span>M</span>S</button>
+            <button id="nav-southeast"><span>,</span>SE</button>
+          </nav>
+
+          <div id="phase-actions"></div>
+        </div>
+
+        <aside class="side-panel">
+          <div class="info-panel">
+            <div class="turn-info">
+              <div>Turn: <strong id="turn-number">1</strong> | Phase: <span id="current-phase" class="phase-indicator">setup</span></div>
+              <div>Current: <span id="current-player-name">-</span></div>
+              <div id="armies-to-place" class="hidden"></div>
+            </div>
+            <h3>Players</h3>
+            <ul id="player-list" class="player-list"></ul>
+          </div>
+
+          <div class="info-panel">
+            <h3>Continents</h3>
+            <div id="continent-bonuses"></div>
+          </div>
+
+          <div class="info-panel">
+            <h3>Speech</h3>
+            <div class="speech-settings">
+              <label>Voice: <select id="game-voice-select" onchange="speech.updateVoiceFromUI('game-voice-select')"></select></label>
+              <label>Rate: <span id="game-rate-value">1.2</span> <input type="range" id="game-speech-rate" min="0.5" max="3" step="0.1" value="1.2" oninput="speech.setRate(parseFloat(this.value))"></label>
+            </div>
+          </div>
+
+          <div class="info-panel">
+            <h3>Log</h3>
+            <div id="message-log" class="message-log"></div>
+          </div>
+        </aside>
+      </div>
+    </div>
+  </div>
+
+  <!-- OVERLAYS -->
+  <div id="quick-jump-overlay" class="overlay hidden">
+    <div class="dialog">
+      <h2>Quick Jump (/)</h2>
+      <input type="text" id="quick-jump-input" placeholder="Type territory name..." aria-label="Search territories">
+      <div id="quick-jump-matches" class="quick-jump-matches"></div>
+      <div class="dialog-buttons"><button onclick="ui.hideQuickJump()">Cancel (Esc)</button></div>
+    </div>
+  </div>
+
+  <div id="troop-input-overlay" class="overlay hidden">
+    <div class="dialog">
+      <h2 id="troop-input-title">Move Troops</h2>
+      <p id="troop-input-desc"></p>
+      <input type="number" id="troop-input" min="1" max="99">
+      <p>Min: <span id="troop-min">1</span> | Max: <span id="troop-max">99</span></p>
+      <div class="dialog-buttons">
+        <button onclick="ui.confirmTroopInput()">Confirm (Enter)</button>
+        <button class="btn-secondary" onclick="ui.cancelTroopInput()">Cancel (Esc)</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="dice-overlay" class="overlay hidden">
+    <div class="dialog">
+      <h2>Battle Results</h2>
+      <div id="dice-result"></div>
+      <p id="dice-outcome" style="text-align:center; font-size:1.2rem"></p>
+      <div class="dialog-buttons" style="justify-content:center"><button onclick="ui.closeDiceOverlay()">Continue (Enter)</button></div>
+    </div>
+  </div>
+
+  <div id="report-overlay" class="overlay hidden">
+    <div class="dialog" style="max-width:700px">
+      <h2 id="report-title">Game Over</h2>
+      <div id="report-content"></div>
+      <div class="dialog-buttons"><button onclick="ui.hideReport()">Close</button><button class="btn-secondary" onclick="game.downloadLog()">Download Log</button></div>
+    </div>
+  </div>
+
+  <div id="help-overlay" class="overlay hidden">
+    <div class="dialog help-dialog">
+      <h2>Keyboard Controls</h2>
+      <h3>Navigation</h3>
+      <div class="key-list">
+        <span class="key-name">I</span><span>North</span>
+        <span class="key-name">J</span><span>West</span>
+        <span class="key-name">K</span><span>Current (announce)</span>
+        <span class="key-name">L</span><span>East</span>
+        <span class="key-name">M</span><span>South</span>
+        <span class="key-name">U/O</span><span>Northwest/Northeast</span>
+        <span class="key-name">N/,</span><span>Southwest/Southeast</span>
+        <span class="key-name">/</span><span>Quick jump to territory</span>
+      </div>
+      <h3>Actions</h3>
+      <div class="key-list">
+        <span class="key-name">Space</span><span>Claim/Place/Select</span>
+        <span class="key-name">Enter</span><span>Attack/Move troops</span>
+        <span class="key-name">A</span><span>Place all armies</span>
+        <span class="key-name">T</span><span>Trade cards</span>
+        <span class="key-name">E</span><span>End phase/turn</span>
+        <span class="key-name">X</span><span>Cancel selection</span>
+      </div>
+      <h3>Information</h3>
+      <div class="key-list">
+        <span class="key-name">1</span><span>List unclaimed</span>
+        <span class="key-name">2-7</span><span>Player status</span>
+        <span class="key-name">B</span><span>Your status</span>
+        <span class="key-name">C</span><span>Your cards</span>
+        <span class="key-name">P</span><span>Current phase</span>
+        <span class="key-name">R</span><span>Repeat last</span>
+        <span class="key-name">?</span><span>This help</span>
+      </div>
+      <div class="dialog-buttons"><button onclick="ui.hideHelp()">Close (Esc)</button></div>
+    </div>
+  </div>
+
+  <script type="module">
+    import { TERRITORIES, NAV_KEYS, findTerritory } from './js/data.js';
+    import { G, reset, initTerritories, initDeck, initStats, log, getPlayerTerritories, getEnemyNeighbors, areConnected, currentTerritory, currentPlayer, serialize, restore, getTradeValue } from './js/state.js';
+    import * as speech from './js/speech.js';
+    import * as sounds from './js/sounds.js';
+    import * as ui from './js/ui.js';
+    import * as gameModule from './js/game.js';
+
+    // Connect callbacks
+    gameModule.setCallbacks(ui.updateUI, ui.showAfterActionReport, ui.showTroopInput, ui.showDiceResult);
+
+    // Timers
+    let autoSaveInterval, timerInterval;
+
+    // Initialize
+    speech.init();
+
+    // Check saved game
+    try {
+      const saved = localStorage.getItem('riskSave');
+      if (saved && JSON.parse(saved).game?.state?.phase !== 'setup') document.getElementById('resume-btn').classList.remove('hidden');
+    } catch (e) {}
+
+    // Start game
+    function startGame() {
+      const playerName = document.getElementById('player-name').value.trim() || 'Commander';
+      const numPlayers = parseInt(document.getElementById('num-players').value);
+      const gameMode = document.getElementById('game-mode').value;
+      const speechRate = parseFloat(document.getElementById('speech-rate').value);
+      G.aiDelay = parseFloat(document.getElementById('ai-delay').value) * 1000;
+
+      sounds.init();
+      sounds.setEnabled(document.getElementById('sound-effects').checked);
+      speech.setRate(speechRate);
+      speech.updateVoiceFromUI('voice-select');
+
+      const voiceSelect = document.getElementById('voice-select');
+      const gameVoice = document.getElementById('game-voice-select');
+      if (voiceSelect && gameVoice) gameVoice.value = voiceSelect.value;
+      document.getElementById('game-speech-rate').value = speechRate;
+      document.getElementById('game-rate-value').textContent = speechRate.toFixed(1);
+
+      reset();
+      G.gameMode = gameMode;
+      G.startTime = Date.now();
+
+      gameModule.initPlayers(playerName, numPlayers, gameMode === 'spectator');
+      initTerritories();
+      initDeck();
+      initStats();
+
+      document.getElementById('setup-screen').classList.add('hidden');
+      document.getElementById('game-screen').classList.remove('hidden');
+
+      autoSaveInterval = setInterval(() => {
+        try { localStorage.setItem('riskSave', JSON.stringify({ game: serialize(), speech: speech.getSettings(), sound: sounds.getSettings() })); } catch (e) {}
+      }, 10000);
+      timerInterval = setInterval(() => {
+        const el = document.getElementById('game-timer');
+        if (el && G.startTime) {
+          const elapsed = Math.floor((Date.now() - G.startTime) / 1000);
+          el.textContent = `${Math.floor(elapsed / 60)}:${(elapsed % 60).toString().padStart(2, '0')}`;
+        }
+      }, 1000);
+
+      if (gameMode === 'random' || gameMode === 'random-troops' || gameMode === 'empire') {
+        gameModule.randomAssignTerritories(gameMode === 'empire');
+        if (gameMode === 'random-troops') { gameModule.randomPlaceTroops(); gameModule.startMainGame(); }
+        else gameModule.startSetupReinforce();
+      } else if (gameMode === 'spectator') {
+        gameModule.randomAssignTerritories(false);
+        gameModule.randomPlaceTroops();
+        gameModule.startMainGame();
+      } else gameModule.startClaimPhase();
+
+      ui.updateUI();
+      document.getElementById('current-territory').focus();
+      const aiInfo = G.players.filter(p => !p.isHuman).map(p => `${p.colorName}: ${p.strategy}`).join(', ');
+      speech.speak(`Game starting. AI: ${aiInfo}`);
+      log('Game started');
+    }
+
+    function resumeGame() {
+      try {
+        const saved = localStorage.getItem('riskSave');
+        if (saved) {
+          const data = JSON.parse(saved);
+          restore(data.game);
+          if (data.speech) speech.restoreSettings(data.speech);
+          if (data.sound) sounds.restoreSettings(data.sound);
+          sounds.init();
+          document.getElementById('setup-screen').classList.add('hidden');
+          document.getElementById('game-screen').classList.remove('hidden');
+          ui.updateUI();
+          speech.speak(`Resumed. Turn ${G.turnNumber}.`);
+        }
+      } catch (e) { speech.speak('Failed to load.'); }
+    }
+
+    // Navigation
+    function navigate(direction) {
+      const t = currentTerritory();
+      if (!t) return;
+      const target = t.directions[direction];
+      if (target && target !== 'ocean') {
+        const idx = TERRITORIES.findIndex(x => x.name === target);
+        if (idx >= 0) { G.currentTerritoryIdx = idx; sounds.play('move'); ui.updateUI(); ui.announceTerritory(); }
+      } else { sounds.play('error'); speech.speak('Ocean.'); }
+    }
+
+    // Game actions
+    function claimTerritory() {
+      if (G.phase !== 'claim') return;
+      const player = currentPlayer();
+      if (!player.isHuman) return;
+      const t = currentTerritory();
+      if (G.territories[t.name].owner !== null) { sounds.play('error'); speech.speak('Already claimed.'); return; }
+      G.territories[t.name].owner = player.id;
+      G.territories[t.name].troops = 1;
+      G.setupArmies[player.id]--;
+      sounds.play('place');
+      log(`${player.name} claims ${t.name}`);
+      speech.speak(`Claimed ${t.name}.`);
+      G.currentPlayer = (G.currentPlayer + 1) % G.players.length;
+      if (TERRITORIES.filter(t => G.territories[t.name].owner === null).length === 0) gameModule.startSetupReinforce();
+      else { ui.updateUI(); if (!currentPlayer().isHuman) setTimeout(gameModule.aiTurn, G.aiDelay); }
+    }
+
+    function placeArmy() {
+      const player = currentPlayer();
+      if (!player.isHuman) return;
+      const t = currentTerritory();
+      if (G.territories[t.name].owner !== player.id) { sounds.play('error'); speech.speak('Select your territory.'); return; }
+      if (G.phase === 'setup-reinforce') {
+        G.territories[t.name].troops++;
+        G.setupArmies[player.id]--;
+        sounds.play('place');
+        speech.speak(`Placed on ${t.name}. ${G.setupArmies[player.id]} remaining.`);
+        gameModule.nextSetupPlayer();
+      } else if (G.phase === 'reinforce') {
+        if (G.armiesToPlace <= 0) { sounds.play('error'); speech.speak('No armies.'); return; }
+        G.territories[t.name].troops++;
+        G.armiesToPlace--;
+        G.stats.troopsPlaced[player.id]++;
+        sounds.play('place');
+        speech.speak(`${t.name}: ${G.territories[t.name].troops}. ${G.armiesToPlace} left.`);
+        ui.updateUI();
+      }
+    }
+
+    function placeAllArmies() {
+      if (G.phase !== 'reinforce') return;
+      const player = currentPlayer();
+      if (!player.isHuman || G.armiesToPlace <= 0) return;
+      const t = currentTerritory();
+      if (G.territories[t.name].owner !== player.id) { sounds.play('error'); speech.speak('Select your territory.'); return; }
+      const amt = G.armiesToPlace;
+      G.territories[t.name].troops += amt;
+      G.stats.troopsPlaced[player.id] += amt;
+      G.armiesToPlace = 0;
+      sounds.play('place');
+      speech.speak(`Placed ${amt} on ${t.name}.`);
+      ui.updateUI();
+    }
+
+    function endReinforce() {
+      if (G.phase !== 'reinforce') return;
+      if (G.armiesToPlace > 0) { speech.speak(`Place ${G.armiesToPlace} armies first.`); return; }
+      gameModule.startAttackPhase();
+    }
+
+    function tradeCards() {
+      const player = currentPlayer();
+      if (!player.isHuman || G.phase !== 'reinforce') return;
+      const set = gameModule.findValidCardSet(player.cards);
+      if (!set) { speech.speak('No valid set.'); return; }
+      const bonus = gameModule.executeCardTrade(player, set);
+      G.armiesToPlace += bonus;
+      sounds.play('card');
+      speech.speak(`Traded for ${bonus}. Total: ${G.armiesToPlace}.`);
+      ui.updateUI();
+    }
+
+    function selectAttackSource() {
+      if (G.phase !== 'attack') return;
+      const player = currentPlayer();
+      const t = currentTerritory();
+      if (G.territories[t.name].owner !== player.id) { sounds.play('error'); speech.speak('Select your territory.'); return; }
+      if (G.territories[t.name].troops <= 1) { sounds.play('error'); speech.speak('Need more troops.'); return; }
+      if (getEnemyNeighbors(t.name, player.id).length === 0) { sounds.play('error'); speech.speak('No adjacent enemies.'); return; }
+      G.attackFrom = t.name;
+      sounds.play('select');
+      speech.speak(`Attacking from ${t.name}. Navigate to enemy, press Enter.`);
+      ui.updateUI();
+    }
+
+    function executeAttack() {
+      if (G.phase !== 'attack' || !G.attackFrom) { speech.speak('Select source first.'); return; }
+      const player = currentPlayer();
+      const t = currentTerritory();
+      const fromData = findTerritory(G.attackFrom);
+      if (!fromData.borders.includes(t.name)) { sounds.play('error'); speech.speak('Not adjacent.'); return; }
+      if (G.territories[t.name].owner === player.id) { sounds.play('error'); speech.speak('Cannot attack yourself.'); return; }
+      if (G.territories[t.name].owner === null) { sounds.play('error'); speech.speak('Unclaimed.'); return; }
+
+      const from = G.territories[G.attackFrom], to = G.territories[t.name];
+      const defender = G.players[to.owner];
+      G.stats.attacks[player.id]++;
+      log(`${player.name} attacks ${t.name} from ${G.attackFrom}`);
+      sounds.play('attack');
+
+      const result = gameModule.resolveBattle(G.attackFrom, t.name);
+      log(`  [${result.attackRolls}] vs [${result.defendRolls}]: -${result.attackerLosses}/-${result.defenderLosses}`);
+      if (result.defenderLosses > result.attackerLosses) { G.stats.won[player.id]++; G.stats.failed[defender.id]++; }
+      else { G.stats.failed[player.id]++; G.stats.won[defender.id]++; }
+
+      ui.showDiceResult(result, () => {
+        if (to.troops === 0) {
+          G.conqueredThisTurn = true;
+          G.stats.conquered[player.id]++;
+          G.stats.lost[defender.id]++;
+          G.stats.successfulAttacks[player.id]++;
+          const oldOwner = to.owner;
+          to.owner = player.id;
+          sounds.play('victory');
+          log(`${player.name} conquers ${t.name}!`, true);
+          speech.speak(`Victory! Conquered ${t.name}!`);
+          gameModule.checkContinentControl();
+
+          const defT = Object.values(G.territories).filter(x => x.owner === oldOwner);
+          if (defT.length === 0 && oldOwner !== null) {
+            defender.eliminated = true;
+            G.stats.eliminated[oldOwner] = G.turnNumber;
+            if (defender.cards.length > 0) { player.cards.push(...defender.cards); defender.cards = []; speech.speak(`${defender.name} eliminated! Cards captured.`); }
+            else speech.speak(`${defender.name} eliminated!`);
+            sounds.play('elimination');
+            log(`${defender.name} eliminated`, true);
+          }
+
+          const winner = gameModule.checkVictory();
+          if (winner !== null) { gameModule.endGame(winner); return; }
+
+          const minMove = Math.min(3, from.troops - 1), maxMove = from.troops - 1;
+          if (minMove === maxMove) { from.troops -= minMove; to.troops = minMove; G.attackFrom = null; ui.updateUI(); }
+          else ui.showTroopInput('Move Troops', `How many to ${t.name}?`, minMove, maxMove, amt => { from.troops -= amt; to.troops = amt; G.attackFrom = null; ui.updateUI(); });
+        } else {
+          if (from.troops <= 1) { speech.speak('Attack exhausted.'); G.attackFrom = null; }
+          ui.updateUI();
+        }
+      });
+    }
+
+    function cancelAttack() { G.attackFrom = null; speech.speak('Cancelled.'); ui.updateUI(); }
+    function endAttack() { G.attackFrom = null; gameModule.startFortifyPhase(); }
+
+    function selectFortifySource() {
+      if (G.phase !== 'fortify') return;
+      const player = currentPlayer();
+      const t = currentTerritory();
+      if (G.territories[t.name].owner !== player.id) { sounds.play('error'); speech.speak('Select your territory.'); return; }
+      if (G.territories[t.name].troops <= 1) { sounds.play('error'); speech.speak('Need more troops.'); return; }
+      G.fortifyFrom = t.name;
+      sounds.play('select');
+      speech.speak(`Moving from ${t.name}. Navigate to destination, press Enter.`);
+      ui.updateUI();
+    }
+
+    function executeFortify() {
+      if (G.phase !== 'fortify' || !G.fortifyFrom) { speech.speak('Select source first.'); return; }
+      const player = currentPlayer();
+      const t = currentTerritory();
+      if (G.territories[t.name].owner !== player.id) { sounds.play('error'); speech.speak('Select your territory.'); return; }
+      if (t.name === G.fortifyFrom) { sounds.play('error'); speech.speak('Select different territory.'); return; }
+      if (!areConnected(G.fortifyFrom, t.name, player.id)) { sounds.play('error'); speech.speak('Not connected.'); return; }
+      const from = G.territories[G.fortifyFrom], maxMove = from.troops - 1;
+      ui.showTroopInput('Move Troops', `How many to ${t.name}?`, 1, maxMove, amt => {
+        from.troops -= amt;
+        G.territories[t.name].troops += amt;
+        log(`${player.name} moves ${amt} from ${G.fortifyFrom} to ${t.name}`);
+        speech.speak(`Moved ${amt}.`);
+        G.fortifyFrom = null;
+        gameModule.nextPlayer();
+      });
+    }
+
+    function cancelFortify() { G.fortifyFrom = null; speech.speak('Cancelled.'); ui.updateUI(); }
+    function endTurn() { G.fortifyFrom = null; gameModule.nextPlayer(); }
+
+    // Save/Load
+    function saveToFile() {
+      const blob = new Blob([JSON.stringify({ game: serialize(), speech: speech.getSettings(), sound: sounds.getSettings(), version: 2 }, null, 2)], { type: 'application/json' });
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `risk-${Date.now()}.json`; a.click();
+      speech.speak('Saved.');
+    }
+
+    function loadFromFile() {
+      const input = document.createElement('input'); input.type = 'file'; input.accept = '.json';
+      input.onchange = e => {
+        const file = e.target.files[0]; if (!file) return;
+        const reader = new FileReader();
+        reader.onload = ev => {
+          try {
+            const data = JSON.parse(ev.target.result);
+            restore(data.game);
+            if (data.speech) speech.restoreSettings(data.speech);
+            if (data.sound) sounds.restoreSettings(data.sound);
+            ui.updateUI();
+            speech.speak('Loaded.');
+          } catch (e) { speech.speak('Failed.'); }
+        };
+        reader.readAsText(file);
+      };
+      input.click();
+    }
+
+    function downloadLog() {
+      let text = 'RISK GAME LOG\n' + '='.repeat(50) + '\n\n';
+      for (const entry of G.log || []) text += `[T${entry.turn}] ${entry.msg}\n`;
+      const blob = new Blob([text], { type: 'text/plain' });
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `risk-log-${Date.now()}.txt`; a.click();
+    }
+
+    // Keyboard
+    document.addEventListener('keydown', e => {
+      if (ui.isQuickJumpActive()) {
+        if (e.key === 'Escape') { ui.hideQuickJump(); return; }
+        if (e.key === 'Enter') { document.querySelector('.quick-jump-match')?.click(); return; }
+        return;
+      }
+      if (ui.isTroopInputActive()) {
+        if (e.key === 'Escape') { ui.cancelTroopInput(); return; }
+        if (e.key === 'Enter') { ui.confirmTroopInput(); return; }
+        return;
+      }
+      if (ui.isDiceActive()) { if (e.key === 'Enter' || e.key === ' ' || e.key === 'Escape') ui.closeDiceOverlay(); return; }
+      if (ui.isReportActive()) { if (e.key === 'Escape' || e.key === 'Enter') ui.hideReport(); return; }
+      if (!document.getElementById('help-overlay').classList.contains('hidden')) { if (e.key === 'Escape' || e.key === '?') ui.hideHelp(); return; }
+
+      const key = e.key.toLowerCase();
+      if (NAV_KEYS[key]) { e.preventDefault(); navigate(NAV_KEYS[key]); return; }
+      if (key === '/') { e.preventDefault(); ui.showQuickJump(); return; }
+      if (key === '?') { e.preventDefault(); ui.showHelp(); return; }
+      if (key === '1') { ui.listUnclaimed(); return; }
+      if (key >= '2' && key <= '7') { ui.announcePlayerStatus(parseInt(key) - 2); return; }
+      if (key === 'b') { if (G.humanPlayerId >= 0) ui.announcePlayerStatus(G.humanPlayerId); return; }
+      if (key === 'c') { ui.listCards(); return; }
+      if (key === 'p') { ui.announcePhase(); return; }
+      if (key === 'r') { speech.repeat(); return; }
+      if (key === 'k') { ui.announceTerritory(); return; }
+
+      if (key === ' ' || key === 'enter') {
+        e.preventDefault();
+        if (!currentPlayer()?.isHuman) return;
+        if (G.phase === 'claim') claimTerritory();
+        else if (G.phase === 'setup-reinforce' || G.phase === 'reinforce') placeArmy();
+        else if (G.phase === 'attack') G.attackFrom ? executeAttack() : selectAttackSource();
+        else if (G.phase === 'fortify') G.fortifyFrom ? executeFortify() : selectFortifySource();
+        return;
+      }
+      if (key === 'a' && G.phase === 'reinforce') { placeAllArmies(); return; }
+      if (key === 't' && G.phase === 'reinforce') { tradeCards(); return; }
+      if (key === 'x') { if (G.phase === 'attack') cancelAttack(); else if (G.phase === 'fortify') cancelFortify(); return; }
+      if (key === 'e') {
+        if (!currentPlayer()?.isHuman) return;
+        if (G.phase === 'reinforce' && G.armiesToPlace === 0) gameModule.startAttackPhase();
+        else if (G.phase === 'attack') endAttack();
+        else if (G.phase === 'fortify') endTurn();
+        return;
+      }
+    });
+
+    // Quick jump input
+    document.getElementById('quick-jump-input')?.addEventListener('input', e => ui.updateQuickJumpMatches(e.target.value));
+
+    // Expose to window
+    window.game = { startGame, resumeGame, claimTerritory, placeArmy, placeAllArmies, endReinforce, tradeCards, selectAttackSource, executeAttack, cancelAttack, endAttack, selectFortifySource, executeFortify, cancelFortify, endTurn, saveToFile, loadFromFile, downloadLog, toggleSpeech: speech.toggle, toggleSound: sounds.toggle, showHelp: ui.showHelp };
+    window.ui = ui;
+    window.speech = speech;
+  </script>
+</body>
+</html>
