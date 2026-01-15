@@ -205,19 +205,55 @@
     </div>
   </div>
 
-  <script type="module">
-    import { TERRITORIES, NAV_KEYS, findTerritory } from './js/data.js';
-    import { G, reset, initTerritories, initDeck, initStats, log, getPlayerTerritories, getEnemyNeighbors, areConnected, currentTerritory, currentPlayer, serialize, restore, getTradeValue } from './js/state.js';
-    import * as speech from './js/speech.js';
-    import * as sounds from './js/sounds.js';
-    import * as ui from './js/ui.js';
-    import * as gameModule from './js/game.js';
+  <script src="js/bundle.js"></script>
+  <script>
+    const { TERRITORIES, NAV_KEYS, findTerritory } = window.RiskData;
+    const {
+      G,
+      gameLog,
+      reset,
+      initTerritories,
+      initDeck,
+      initStats,
+      log,
+      getPlayerTerritories,
+      getEnemyNeighbors,
+      areConnected,
+      currentTerritory,
+      currentPlayer,
+      serialize,
+      restore,
+      getTradeValue
+    } = window.RiskState;
+    const speech = window.RiskSpeech;
+    const sounds = window.RiskSounds;
+    const ui = window.RiskUI;
+    const gameModule = window.RiskGame;
 
     // Connect callbacks
     gameModule.setCallbacks(ui.updateUI, ui.showAfterActionReport, ui.showTroopInput, ui.showDiceResult);
 
     // Timers
     let autoSaveInterval, timerInterval;
+
+    function clearIntervals() {
+      if (autoSaveInterval) clearInterval(autoSaveInterval);
+      if (timerInterval) clearInterval(timerInterval);
+    }
+
+    function startIntervals() {
+      clearIntervals();
+      autoSaveInterval = setInterval(() => {
+        try { localStorage.setItem('riskSave', JSON.stringify({ game: serialize(), speech: speech.getSettings(), sound: sounds.getSettings() })); } catch (e) {}
+      }, 10000);
+      timerInterval = setInterval(() => {
+        const el = document.getElementById('game-timer');
+        if (el && G.startTime) {
+          const elapsed = Math.floor((Date.now() - G.startTime) / 1000);
+          el.textContent = `${Math.floor(elapsed / 60)}:${(elapsed % 60).toString().padStart(2, '0')}`;
+        }
+      }, 1000);
+    }
 
     // Initialize
     speech.init();
@@ -259,16 +295,7 @@
       document.getElementById('setup-screen').classList.add('hidden');
       document.getElementById('game-screen').classList.remove('hidden');
 
-      autoSaveInterval = setInterval(() => {
-        try { localStorage.setItem('riskSave', JSON.stringify({ game: serialize(), speech: speech.getSettings(), sound: sounds.getSettings() })); } catch (e) {}
-      }, 10000);
-      timerInterval = setInterval(() => {
-        const el = document.getElementById('game-timer');
-        if (el && G.startTime) {
-          const elapsed = Math.floor((Date.now() - G.startTime) / 1000);
-          el.textContent = `${Math.floor(elapsed / 60)}:${(elapsed % 60).toString().padStart(2, '0')}`;
-        }
-      }, 1000);
+      startIntervals();
 
       if (gameMode === 'random' || gameMode === 'random-troops' || gameMode === 'empire') {
         gameModule.randomAssignTerritories(gameMode === 'empire');
@@ -296,6 +323,7 @@
           if (data.speech) speech.restoreSettings(data.speech);
           if (data.sound) sounds.restoreSettings(data.sound);
           sounds.init();
+          startIntervals();
           document.getElementById('setup-screen').classList.add('hidden');
           document.getElementById('game-screen').classList.remove('hidden');
           ui.updateUI();
@@ -511,6 +539,8 @@
             restore(data.game);
             if (data.speech) speech.restoreSettings(data.speech);
             if (data.sound) sounds.restoreSettings(data.sound);
+            sounds.init();
+            startIntervals();
             ui.updateUI();
             speech.speak('Loaded.');
           } catch (e) { speech.speak('Failed.'); }
@@ -522,7 +552,11 @@
 
     function downloadLog() {
       let text = 'RISK GAME LOG\n' + '='.repeat(50) + '\n\n';
-      for (const entry of G.log || []) text += `[T${entry.turn}] ${entry.msg}\n`;
+      for (const entry of gameLog || []) {
+        const time = entry.time ? ` ${entry.time}` : '';
+        const phase = entry.phase ? ` | ${entry.phase}` : '';
+        text += `[T${entry.turn}${time}] ${entry.player}${phase}: ${entry.msg}\n`;
+      }
       const blob = new Blob([text], { type: 'text/plain' });
       const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `risk-log-${Date.now()}.txt`; a.click();
     }
