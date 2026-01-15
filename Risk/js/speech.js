@@ -7,16 +7,32 @@ let voiceName = null;  // Store by name, not index!
 let rate = 1.2;
 let enabled = true;
 let lastText = '';
+let initialized = false;
+let supported = true;
 
 // Initialize
 export function init() {
-  if (!window.speechSynthesis) return false;
+  supported = !!(window.speechSynthesis && typeof SpeechSynthesisUtterance !== 'undefined');
+  if (!supported) {
+    enabled = false;
+    return false;
+  }
   synth = window.speechSynthesis;
   loadVoices();
   if (synth.onvoiceschanged !== undefined) synth.onvoiceschanged = loadVoices;
   setTimeout(loadVoices, 100);
   setTimeout(loadVoices, 500);
   setInterval(checkHealth, 5000);
+  if (!initialized) {
+    const resume = () => {
+      if (synth?.paused) synth.resume();
+    };
+    document.addEventListener('click', resume);
+    document.addEventListener('keydown', resume);
+    document.addEventListener('touchstart', resume);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) resume(); });
+    initialized = true;
+  }
   return true;
 }
 
@@ -73,13 +89,14 @@ function checkHealth() {
 
 // Speak text
 export function speak(text, interrupt = true) {
-  if (!enabled || !text) return;
+  if (!enabled || !supported || !text) return;
   lastText = text;
   
   // Update ARIA live region
   const region = document.getElementById('live-region');
   if (region) { region.textContent = ''; setTimeout(() => { region.textContent = text; }, 50); }
   
+  if (!synth && window.speechSynthesis) synth = window.speechSynthesis;
   if (!synth) return;
   if (interrupt) try { synth.cancel(); } catch (e) {}
   
@@ -130,6 +147,7 @@ export function setRate(r) {
 
 // Toggle
 export function toggle() {
+  if (!supported) return false;
   enabled = !enabled;
   const btn = document.getElementById('toggle-speech-btn');
   if (btn) btn.textContent = enabled ? 'Mute' : 'Unmute';
@@ -139,6 +157,7 @@ export function toggle() {
 
 // Getters
 export function isEnabled() { return enabled; }
+export function isSupported() { return supported; }
 export function getRate() { return rate; }
 export function getVoiceName() { return voiceName; }
 export function getSettings() { return { voiceName, rate, enabled }; }

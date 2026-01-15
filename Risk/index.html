@@ -41,7 +41,8 @@
         <label for="voice-select">Voice:</label>
         <select id="voice-select"></select>
         <label for="speech-rate">Speech Rate: <span id="rate-value">1.2</span></label>
-        <input type="range" id="speech-rate" min="0.5" max="3" step="0.1" value="1.2" oninput="document.getElementById('rate-value').textContent=this.value">
+        <input type="range" id="speech-rate" min="0.5" max="4" step="0.1" value="1.2" oninput="document.getElementById('rate-value').textContent=this.value">
+        <p id="speech-warning" class="speech-warning hidden">Speech synthesis is unavailable. Check browser support or HTTPS.</p>
       </div>
       
       <div class="setup-section">
@@ -72,7 +73,7 @@
         </div>
       </header>
 
-      <div class="game-main">
+      <main class="game-main">
         <div class="territory-panel">
           <div id="current-territory" class="current-territory" tabindex="0" role="region" aria-label="Current Territory">
             <span id="territory-name" class="territory-name">Alaska</span>
@@ -92,7 +93,7 @@
             <button id="nav-southeast"><span>,</span>SE</button>
           </nav>
 
-          <div id="phase-actions"></div>
+          <section id="phase-actions" aria-label="Phase actions"></section>
         </div>
 
         <aside class="side-panel">
@@ -115,16 +116,17 @@
             <h3>Speech</h3>
             <div class="speech-settings">
               <label>Voice: <select id="game-voice-select" onchange="speech.updateVoiceFromUI('game-voice-select')"></select></label>
-              <label>Rate: <span id="game-rate-value">1.2</span> <input type="range" id="game-speech-rate" min="0.5" max="3" step="0.1" value="1.2" oninput="speech.setRate(parseFloat(this.value))"></label>
+              <label>Rate: <span id="game-rate-value">1.2</span> <input type="range" id="game-speech-rate" min="0.5" max="4" step="0.1" value="1.2" oninput="speech.setRate(parseFloat(this.value))"></label>
+              <label>AI Delay: <span id="game-delay-value">2</span>s <input type="range" id="game-ai-delay" min="0.5" max="5" step="0.5" value="2" oninput="game.updateAIDelayFromUI(parseFloat(this.value))"></label>
             </div>
           </div>
 
-          <div class="info-panel">
-            <h3>Log</h3>
-            <div id="message-log" class="message-log"></div>
-          </div>
+          <section class="info-panel" aria-labelledby="log-title">
+            <h3 id="log-title">Log</h3>
+            <ul id="message-log" class="message-log" role="log" aria-live="polite" aria-relevant="additions text"></ul>
+          </section>
         </aside>
-      </div>
+      </main>
     </div>
   </div>
 
@@ -193,8 +195,9 @@
       </div>
       <h3>Information</h3>
       <div class="key-list">
-        <span class="key-name">1</span><span>List unclaimed</span>
-        <span class="key-name">2-7</span><span>Player status</span>
+        <span class="key-name">-</span><span>Claimed/unclaimed report</span>
+        <span class="key-name">1-6</span><span>Player status</span>
+        <span class="key-name">Shift + 1-6</span><span>Verbose player status</span>
         <span class="key-name">B</span><span>Your status</span>
         <span class="key-name">C</span><span>Your cards</span>
         <span class="key-name">P</span><span>Current phase</span>
@@ -256,7 +259,31 @@
     }
 
     // Initialize
-    speech.init();
+    let speechReady = speech.init();
+    const speechWarning = document.getElementById('speech-warning');
+    function setSpeechControlsEnabled(enabled) {
+      for (const id of ['voice-select', 'speech-rate', 'game-voice-select', 'game-speech-rate']) {
+        const control = document.getElementById(id);
+        if (control) control.disabled = !enabled;
+      }
+      const toggleBtn = document.getElementById('toggle-speech-btn');
+      if (toggleBtn) {
+        toggleBtn.textContent = enabled ? (speech.isEnabled() ? 'Mute' : 'Unmute') : 'Speech Unavailable';
+        toggleBtn.disabled = !enabled;
+      }
+    }
+    if (!speechReady) {
+      if (speechWarning) speechWarning.classList.remove('hidden');
+      setSpeechControlsEnabled(false);
+    }
+    function ensureSpeechReady() {
+      if (speechReady) return;
+      speechReady = speech.init();
+      if (speechReady) {
+        if (speechWarning) speechWarning.classList.add('hidden');
+        setSpeechControlsEnabled(true);
+      }
+    }
 
     // Check saved game
     try {
@@ -266,6 +293,7 @@
 
     // Start game
     function startGame() {
+      ensureSpeechReady();
       const playerName = document.getElementById('player-name').value.trim() || 'Commander';
       const numPlayers = parseInt(document.getElementById('num-players').value);
       const gameMode = document.getElementById('game-mode').value;
@@ -282,6 +310,10 @@
       if (voiceSelect && gameVoice) gameVoice.value = voiceSelect.value;
       document.getElementById('game-speech-rate').value = speechRate;
       document.getElementById('game-rate-value').textContent = speechRate.toFixed(1);
+      const gameDelay = document.getElementById('game-ai-delay');
+      const gameDelayValue = document.getElementById('game-delay-value');
+      if (gameDelay) gameDelay.value = (G.aiDelay / 1000).toString();
+      if (gameDelayValue) gameDelayValue.textContent = (G.aiDelay / 1000).toFixed(1).replace(/\.0$/, '');
 
       reset();
       G.gameMode = gameMode;
@@ -316,6 +348,7 @@
 
     function resumeGame() {
       try {
+        ensureSpeechReady();
         const saved = localStorage.getItem('riskSave');
         if (saved) {
           const data = JSON.parse(saved);
@@ -323,6 +356,11 @@
           if (data.speech) speech.restoreSettings(data.speech);
           if (data.sound) sounds.restoreSettings(data.sound);
           sounds.init();
+          const delaySeconds = (G.aiDelay || 2000) / 1000;
+          const gameDelay = document.getElementById('game-ai-delay');
+          const gameDelayValue = document.getElementById('game-delay-value');
+          if (gameDelay) gameDelay.value = delaySeconds.toString();
+          if (gameDelayValue) gameDelayValue.textContent = delaySeconds.toFixed(1).replace(/\.0$/, '');
           startIntervals();
           document.getElementById('setup-screen').classList.add('hidden');
           document.getElementById('game-screen').classList.remove('hidden');
@@ -330,6 +368,13 @@
           speech.speak(`Resumed. Turn ${G.turnNumber}.`);
         }
       } catch (e) { speech.speak('Failed to load.'); }
+    }
+
+    function updateAIDelayFromUI(value) {
+      const delaySeconds = Math.max(0.5, Math.min(5, value));
+      G.aiDelay = delaySeconds * 1000;
+      const display = document.getElementById('game-delay-value');
+      if (display) display.textContent = delaySeconds.toFixed(1).replace(/\.0$/, '');
     }
 
     // Navigation
@@ -581,8 +626,14 @@
       if (NAV_KEYS[key]) { e.preventDefault(); navigate(NAV_KEYS[key]); return; }
       if (key === '/') { e.preventDefault(); ui.showQuickJump(); return; }
       if (key === '?') { e.preventDefault(); ui.showHelp(); return; }
-      if (key === '1') { ui.listUnclaimed(); return; }
-      if (key >= '2' && key <= '7') { ui.announcePlayerStatus(parseInt(key) - 2); return; }
+      if (key === '-' || e.code === 'Minus') { ui.announceClaimReport(); return; }
+      const digitMatch = e.code?.match(/^Digit([1-6])$/);
+      if (digitMatch) {
+        const playerIdx = parseInt(digitMatch[1], 10) - 1;
+        if (e.shiftKey) ui.announcePlayerVerbose(playerIdx);
+        else ui.announcePlayerStatus(playerIdx);
+        return;
+      }
       if (key === 'b') { if (G.humanPlayerId >= 0) ui.announcePlayerStatus(G.humanPlayerId); return; }
       if (key === 'c') { ui.listCards(); return; }
       if (key === 'p') { ui.announcePhase(); return; }
@@ -614,9 +665,8 @@
     document.getElementById('quick-jump-input')?.addEventListener('input', e => ui.updateQuickJumpMatches(e.target.value));
 
     // Expose to window
-    window.game = { startGame, resumeGame, claimTerritory, placeArmy, placeAllArmies, endReinforce, tradeCards, selectAttackSource, executeAttack, cancelAttack, endAttack, selectFortifySource, executeFortify, cancelFortify, endTurn, saveToFile, loadFromFile, downloadLog, toggleSpeech: speech.toggle, toggleSound: sounds.toggle, showHelp: ui.showHelp };
+    window.game = { startGame, resumeGame, claimTerritory, placeArmy, placeAllArmies, endReinforce, tradeCards, selectAttackSource, executeAttack, cancelAttack, endAttack, selectFortifySource, executeFortify, cancelFortify, endTurn, saveToFile, loadFromFile, downloadLog, updateAIDelayFromUI, toggleSpeech: speech.toggle, toggleSound: sounds.toggle, showHelp: ui.showHelp };
     window.ui = ui;
-    window.speech = speech;
   </script>
 </body>
 </html>

@@ -117,11 +117,11 @@ export function log(msg, important = false, victory = false) {
   
   const el = document.getElementById('message-log');
   if (el) {
-    const p = document.createElement('p');
-    p.textContent = msg;
-    if (important) p.classList.add('important');
-    if (victory) p.classList.add('victory');
-    el.insertBefore(p, el.firstChild);
+    const item = document.createElement('li');
+    item.textContent = msg;
+    if (important) item.classList.add('important');
+    if (victory) item.classList.add('victory');
+    el.insertBefore(item, el.firstChild);
     while (el.children.length > 100) el.removeChild(el.lastChild);
   }
 }

@@ -64,9 +64,9 @@ button:disabled { background: #666; cursor: not-allowed; }
 #phase-actions button { padding: 10px 15px; font-size: 0.9rem; }
 
 /* Log */
-.message-log { max-height: 200px; overflow-y: auto; background: var(--bg); padding: 10px; border-radius: 4px; font-size: 0.85rem; }
-.message-log p { margin: 3px 0; padding: 3px 5px; border-bottom: 1px solid var(--border); }
-.message-log p:last-child { border-bottom: none; }
+.message-log { max-height: 200px; overflow-y: auto; background: var(--bg); padding: 10px; border-radius: 4px; font-size: 0.85rem; list-style: none; margin: 0; }
+.message-log li { margin: 3px 0; padding: 3px 5px; border-bottom: 1px solid var(--border); }
+.message-log li:last-child { border-bottom: none; }
 .message-log .important { color: var(--warning); font-weight: bold; }
 .message-log .victory { color: var(--success); font-weight: bold; }
 
@@ -111,6 +111,7 @@ button:disabled { background: #666; cursor: not-allowed; }
 .speech-settings { display: flex; flex-direction: column; gap: 10px; }
 .speech-settings label { display: block; font-size: 0.9rem; }
 .speech-settings select, .speech-settings input { padding: 6px; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 4px; font-size: 0.9rem; width: 100%; }
+.speech-warning { margin: 0; font-size: 0.85rem; color: #f7d28b; }
 
 /* Utils */
 .hidden { display: none !important; }

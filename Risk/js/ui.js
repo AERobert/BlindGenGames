@@ -239,9 +239,19 @@ export function announceTerritory() {
   const owner = ter.owner !== null ? G.players[ter.owner] : null;
   let ann = `${t.name}, ${t.continent}. ${owner ? `${owner.colorName}, ${ter.troops} troops.` : 'Unclaimed.'}`;
   const dirs = [];
-  for (const dir of ['north', 'east', 'south', 'west']) {
+  const directionLabels = [
+    ['northwest', 'northwest'],
+    ['north', 'north'],
+    ['northeast', 'northeast'],
+    ['west', 'west'],
+    ['east', 'east'],
+    ['southwest', 'southwest'],
+    ['south', 'south'],
+    ['southeast', 'southeast']
+  ];
+  for (const [dir, label] of directionLabels) {
     const target = t.directions[dir];
-    if (target && target !== 'ocean') dirs.push(`${target} to the ${dir}`);
+    if (target && target !== 'ocean') dirs.push(`${target} to the ${label}`);
   }
   if (dirs.length > 0) ann += ` ${dirs.join(', ')}.`;
   speech.speak(ann);
@@ -269,12 +279,46 @@ export function listUnclaimed() {
   speech.speak(ann);
 }
 
+export function announceClaimReport() {
+  const unclaimed = TERRITORIES.filter(t => G.territories[t.name].owner === null);
+  const claimed = TERRITORIES.length - unclaimed.length;
+  const claimWord = claimed === 1 ? 'territory is' : 'territories are';
+  const unclaimedWord = unclaimed.length === 1 ? 'territory is' : 'territories are';
+  let ann = `${claimed} ${claimWord} claimed. ${unclaimed.length} ${unclaimedWord} unclaimed.`;
+  if (unclaimed.length > 0) {
+    const byC = {};
+    for (const t of unclaimed) { if (!byC[t.continent]) byC[t.continent] = []; byC[t.continent].push(t.name); }
+    for (const c in byC) ann += ` ${c}: ${byC[c].join(', ')}.`;
+  }
+  speech.speak(ann);
+}
+
 export function listCards() {
   if (G.humanPlayerId < 0) { speech.speak('Spectator mode.'); return; }
   const p = G.players[G.humanPlayerId];
   if (p.cards.length === 0) { speech.speak('No cards.'); return; }
   let ann = `${p.cards.length} cards. `;
   p.cards.forEach((c, i) => { ann += `${i + 1}: ${c.territory || 'Wild'}, ${c.type}. `; });
+  speech.speak(ann);
+}
+
+export function announcePlayerVerbose(idx) {
+  if (idx < 0 || idx >= G.players.length) { speech.speak('Invalid player.'); return; }
+  const p = G.players[idx];
+  const territories = getPlayerTerritories(p.id);
+  const troops = territories.reduce((sum, t) => sum + G.territories[t.name].troops, 0);
+  if (p.eliminated) { speech.speak(`${p.name}, ${p.colorName}, eliminated.`); return; }
+  const territoryWord = territories.length === 1 ? 'territory' : 'territories';
+  let ann = `${p.name}, ${p.colorName}. Controls ${territories.length} ${territoryWord} with ${troops} troops.`;
+  if (territories.length === 0) {
+    ann += ' No territories to report.';
+    speech.speak(ann);
+    return;
+  }
+  const details = territories
+    .map(t => `${t.name} has ${G.territories[t.name].troops} troops`)
+    .join('. ');
+  ann += ` ${details}.`;
   speech.speak(ann);
 }
 
