@@ -12,6 +12,59 @@ let showReport = () => {};
 let showTroopInput = () => {};
 let showDiceResult = () => {};
 
+const COUNTRY_NAME_PARTS = {
+  adjectives: [
+    'United', 'People\'s', 'Royal', 'Free', 'Grand', 'New', 'Old', 'Northern', 'Southern', 'Eastern', 'Western',
+    'Golden', 'Silver', 'Crimson', 'Emerald', 'Azure', 'Iron', 'Verdant', 'Radiant', 'Stormy', 'Quiet', 'Sunny',
+    'Brave', 'Merry', 'Noble', 'Clever', 'Cosmic', 'Wandering', 'Arcadian', 'Bumbling', 'Curious', 'Lucky',
+    'French', 'Roman', 'Nordic', 'Maritime', 'Ivory', 'Obsidian', 'Autumn', 'Crystal', 'Serene', 'Starlit'
+  ],
+  regions: [
+    'Highland', 'Lowland', 'River', 'Coastal', 'Island', 'Mountain', 'Desert', 'Forest', 'Frontier', 'Harbor',
+    'Tundra', 'Prairie', 'Canyon', 'Marsh', 'Delta', 'Steppe', 'Sunset', 'Gulf', 'Northern', 'Southern'
+  ],
+  governments: [
+    'Republic', 'Kingdom', 'Federation', 'Empire', 'Commonwealth', 'Union', 'Duchy', 'Sultanate',
+    'Principality', 'Dominion', 'Confederacy', 'Alliance'
+  ],
+  realms: [
+    'Isles', 'Marches', 'Plains', 'Shores', 'Haven', 'Reach', 'Crown', 'Throne', 'Hills', 'Ridges',
+    'Gardens', 'Harbor', 'Heights', 'Fields', 'Fjords', 'Coast'
+  ]
+};
+
+function pick(list) {
+  return list[Math.floor(Math.random() * list.length)];
+}
+
+function buildCountryName() {
+  const templates = [
+    () => `The ${pick(COUNTRY_NAME_PARTS.adjectives)} ${pick(COUNTRY_NAME_PARTS.governments)}`,
+    () => `${pick(COUNTRY_NAME_PARTS.adjectives)} ${pick(COUNTRY_NAME_PARTS.governments)}`,
+    () => `The ${pick(COUNTRY_NAME_PARTS.regions)} ${pick(COUNTRY_NAME_PARTS.governments)}`,
+    () => `${pick(COUNTRY_NAME_PARTS.regions)} ${pick(COUNTRY_NAME_PARTS.governments)}`,
+    () => `The ${pick(COUNTRY_NAME_PARTS.adjectives)} ${pick(COUNTRY_NAME_PARTS.realms)}`,
+    () => `${pick(COUNTRY_NAME_PARTS.adjectives)} ${pick(COUNTRY_NAME_PARTS.realms)}`
+  ];
+  return templates[Math.floor(Math.random() * templates.length)]();
+}
+
+function shuffle(list) {
+  for (let i = list.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [list[i], list[j]] = [list[j], list[i]];
+  }
+  return list;
+}
+
+export function generateCountryName(existingNames = new Set()) {
+  for (let attempt = 0; attempt < 50; attempt++) {
+    const name = buildCountryName();
+    if (!existingNames.has(name)) return name;
+  }
+  return buildCountryName();
+}
+
 export function setCallbacks(ui, report, troop, dice) {
   updateUI = ui; showReport = report; showTroopInput = troop; showDiceResult = dice;
 }
@@ -20,17 +73,24 @@ export function setCallbacks(ui, report, troop, dice) {
 export function initPlayers(name, count, spectator = false) {
   G.players = [];
   G.spectatorMode = spectator;
+  const usedNames = new Set();
+  if (name) usedNames.add(name);
+  const strategyPool = shuffle([...STRATEGY_NAMES]);
   if (spectator) {
     for (let i = 0; i < count; i++) {
-      const strategy = STRATEGY_NAMES[Math.floor(Math.random() * STRATEGY_NAMES.length)];
-      G.players.push({ id: i, name: `${STRATEGIES[strategy].name} AI`, color: PLAYER_COLORS[i].hex, colorName: PLAYER_COLORS[i].name, isHuman: false, strategy, cards: [], eliminated: false });
+      const strategy = strategyPool[i % strategyPool.length];
+      const countryName = generateCountryName(usedNames);
+      usedNames.add(countryName);
+      G.players.push({ id: i, name: countryName, color: PLAYER_COLORS[i].hex, colorName: PLAYER_COLORS[i].name, isHuman: false, strategy, strategyName: STRATEGIES[strategy].name, cards: [], eliminated: false });
     }
     G.humanPlayerId = -1;
   } else {
     G.players.push({ id: 0, name, color: PLAYER_COLORS[0].hex, colorName: PLAYER_COLORS[0].name, isHuman: true, cards: [], eliminated: false });
     for (let i = 1; i < count; i++) {
-      const strategy = STRATEGY_NAMES[Math.floor(Math.random() * STRATEGY_NAMES.length)];
-      G.players.push({ id: i, name: `${STRATEGIES[strategy].name} AI`, color: PLAYER_COLORS[i].hex, colorName: PLAYER_COLORS[i].name, isHuman: false, strategy, cards: [], eliminated: false });
+      const strategy = strategyPool[(i - 1) % strategyPool.length];
+      const countryName = generateCountryName(usedNames);
+      usedNames.add(countryName);
+      G.players.push({ id: i, name: countryName, color: PLAYER_COLORS[i].hex, colorName: PLAYER_COLORS[i].name, isHuman: false, strategy, strategyName: STRATEGIES[strategy].name, cards: [], eliminated: false });
     }
     G.humanPlayerId = 0;
   }

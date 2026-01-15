@@ -261,6 +261,14 @@
     // Initialize
     let speechReady = speech.init();
     const speechWarning = document.getElementById('speech-warning');
+    const playerNameInput = document.getElementById('player-name');
+    if (playerNameInput) {
+      const generatedName = gameModule.generateCountryName();
+      if (!playerNameInput.value || playerNameInput.value.trim().toLowerCase() === 'commander') {
+        playerNameInput.value = generatedName;
+      }
+      playerNameInput.dataset.generatedName = generatedName;
+    }
     function setSpeechControlsEnabled(enabled) {
       for (const id of ['voice-select', 'speech-rate', 'game-voice-select', 'game-speech-rate']) {
         const control = document.getElementById(id);
@@ -294,7 +302,7 @@
     // Start game
     function startGame() {
       ensureSpeechReady();
-      const playerName = document.getElementById('player-name').value.trim() || 'Commander';
+      const playerName = playerNameInput?.value.trim() || playerNameInput?.dataset.generatedName || gameModule.generateCountryName();
       const numPlayers = parseInt(document.getElementById('num-players').value);
       const gameMode = document.getElementById('game-mode').value;
       const speechRate = parseFloat(document.getElementById('speech-rate').value);
@@ -341,7 +349,7 @@
 
       ui.updateUI();
       document.getElementById('current-territory').focus();
-      const aiInfo = G.players.filter(p => !p.isHuman).map(p => `${p.colorName}: ${p.strategy}`).join(', ');
+      const aiInfo = G.players.filter(p => !p.isHuman).map(p => `${p.colorName}: ${p.strategyName || p.strategy}`).join(', ');
       speech.speak(`Game starting. AI: ${aiInfo}`);
       log('Game started');
     }

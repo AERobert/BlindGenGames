@@ -59,19 +59,24 @@ export const STRATEGIES = {
     name: "Defensive",
     placeArmies(game, player, armies) {
       const territories = game.getPlayerTerritories(player.id);
-      const threats = territories.map(t => {
+      const borders = territories.filter(t => game.getEnemyNeighbors(t.name, player.id).length > 0);
+      const threats = borders.map(t => {
         const maxThreat = game.getEnemyNeighbors(t.name, player.id).reduce((max, e) => Math.max(max, e.troops), 0);
-        return { territory: t, deficit: maxThreat - game.territories[t.name].troops };
-      }).filter(t => t.deficit > -5).sort((a, b) => b.deficit - a.deficit);
+        const deficit = maxThreat + 1 - game.territories[t.name].troops;
+        return { territory: t, deficit };
+      }).sort((a, b) => b.deficit - a.deficit);
       if (threats.length > 0) {
         const placements = []; let remaining = armies;
-        for (const t of threats.slice(0, 3)) {
+        for (const t of threats.slice(0, 2)) {
           if (remaining <= 0) break;
-          const amt = Math.min(remaining, Math.max(1, t.deficit + 2));
+          const amt = Math.min(remaining, Math.max(2, t.deficit + 2));
           placements.push({ territory: t.territory.name, amount: amt });
           remaining -= amt;
         }
-        if (remaining > 0 && placements.length > 0) placements[0].amount += remaining;
+        if (remaining > 0) {
+          const anchor = threats[0]?.territory || territories[0];
+          if (anchor) placements.push({ territory: anchor.name, amount: remaining });
+        }
         return placements;
       }
       return territories.length > 0 ? [{ territory: territories[0].name, amount: armies }] : [];
@@ -80,12 +85,13 @@ export const STRATEGIES = {
       const attacks = [];
       for (const t of game.getPlayerTerritories(player.id)) {
         const myTroops = game.territories[t.name].troops;
-        if (myTroops <= 3) continue;
+        if (myTroops <= 2) continue;
         for (const e of game.getEnemyNeighbors(t.name, player.id)) {
-          if (myTroops >= e.troops * 2) attacks.push({ from: t.name, to: e.name, maxAttacks: 8 });
+          const ratio = myTroops / (e.troops + 1);
+          if (ratio >= 1.8) attacks.push({ from: t.name, to: e.name, ratio, maxAttacks: 12 });
         }
       }
-      return attacks.slice(0, 4);
+      return attacks.sort((a, b) => (b.ratio || 0) - (a.ratio || 0)).slice(0, 6);
     },
     fortify(game, player) {
       const territories = game.getPlayerTerritories(player.id);
@@ -105,10 +111,14 @@ export const STRATEGIES = {
     placeArmies(game, player, armies) {
       const target = findContinentTarget(game, player.id);
       if (target) {
-        for (const owned of target.owned) {
-          const tData = game.allTerritories.find(t => t.name === owned.name);
-          if (tData) for (const m of target.missing) if (tData.borders.includes(m.name)) return [{ territory: owned.name, amount: armies }];
-        }
+        const adjacency = target.owned
+          .map(owned => {
+            const tData = game.allTerritories.find(t => t.name === owned.name);
+            const hits = tData ? target.missing.filter(m => tData.borders.includes(m.name)).length : 0;
+            return { territory: owned, hits };
+          })
+          .sort((a, b) => b.hits - a.hits);
+        if (adjacency.length > 0 && adjacency[0].hits > 0) return [{ territory: adjacency[0].territory.name, amount: armies }];
       }
       return STRATEGIES.defensive.placeArmies(game, player, armies);
     },
@@ -122,7 +132,7 @@ export const STRATEGIES = {
           if (tData) for (const m of target.missing) if (tData.borders.includes(m.name)) attacks.push({ from: t.name, to: m.name, maxAttacks: 15 });
         }
       }
-      if (attacks.length < 3) attacks.push(...STRATEGIES.aggressive.attack(game, player).slice(0, 3));
+      if (attacks.length < 3) attacks.push(...STRATEGIES.aggressive.attack(game, player).slice(0, 4));
       return attacks.slice(0, 8);
     },
     fortify(game, player) { return STRATEGIES.defensive.fortify(game, player); }
@@ -245,6 +255,26 @@ export const STRATEGIES = {
       return [...defensive, ...aggressive.slice(0, 2)];
     },
     fortify(game, player) { return STRATEGIES.defensive.fortify(game, player); }
+  },
+
+  emperor: {
+    name: "Emperor",
+    placeArmies(game, player, armies) {
+      const target = findContinentTarget(game, player.id);
+      if (target) return STRATEGIES.continental.placeArmies(game, player, armies);
+      return STRATEGIES.opportunist.placeArmies(game, player, armies);
+    },
+    attack(game, player) {
+      const attacks = [
+        ...STRATEGIES.eliminator.attack(game, player),
+        ...STRATEGIES.opportunist.attack(game, player),
+        ...STRATEGIES.aggressive.attack(game, player)
+      ];
+      return attacks.slice(0, 12);
+    },
+    fortify(game, player) {
+      return STRATEGIES.aggressive.fortify(game, player) || STRATEGIES.defensive.fortify(game, player);
+    }
   }
 };
 

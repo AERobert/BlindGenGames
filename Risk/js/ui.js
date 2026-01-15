@@ -41,7 +41,8 @@ function updatePlayerList() {
     const territories = getPlayerTerritories(player.id);
     const troops = territories.reduce((sum, t) => sum + G.territories[t.name].troops, 0);
     const li = document.createElement('li');
-    li.innerHTML = `<span class="player-indicator" style="background:${player.color}"></span><span>${player.name}${player.isHuman ? '' : ` (${player.strategy})`}</span><span style="margin-left:auto">${territories.length}T/${troops}A</span>`;
+    const strategyLabel = player.strategyName || player.strategy;
+    li.innerHTML = `<span class="player-indicator" style="background:${player.color}"></span><span>${player.name}${player.isHuman ? '' : ` (${strategyLabel})`}</span><span style="margin-left:auto">${territories.length}T/${troops}A</span>`;
     if (player.id === G.currentPlayer) li.classList.add('current');
     if (player.eliminated) li.classList.add('eliminated');
     list.appendChild(li);

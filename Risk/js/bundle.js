@@ -599,7 +599,8 @@
       const territories = getPlayerTerritories(player.id);
       const troops = territories.reduce((sum, t) => sum + G.territories[t.name].troops, 0);
       const li = document.createElement('li');
-      li.innerHTML = `<span class="player-indicator" style="background:${player.color}"></span><span>${player.name}${player.isHuman ? '' : ` (${player.strategy})`}</span><span style="margin-left:auto">${territories.length}T/${troops}A</span>`;
+      const strategyLabel = player.strategyName || player.strategy;
+      li.innerHTML = `<span class="player-indicator" style="background:${player.color}"></span><span>${player.name}${player.isHuman ? '' : ` (${strategyLabel})`}</span><span style="margin-left:auto">${territories.length}T/${troops}A</span>`;
       if (player.id === G.currentPlayer) li.classList.add('current');
       if (player.eliminated) li.classList.add('eliminated');
       list.appendChild(li);
@@ -972,19 +973,24 @@
       name: "Defensive",
       placeArmies(game, player, armies) {
         const territories = game.getPlayerTerritories(player.id);
-        const threats = territories.map(t => {
+        const borders = territories.filter(t => game.getEnemyNeighbors(t.name, player.id).length > 0);
+        const threats = borders.map(t => {
           const maxThreat = game.getEnemyNeighbors(t.name, player.id).reduce((max, e) => Math.max(max, e.troops), 0);
-          return { territory: t, deficit: maxThreat - game.territories[t.name].troops };
-        }).filter(t => t.deficit > -5).sort((a, b) => b.deficit - a.deficit);
+          const deficit = maxThreat + 1 - game.territories[t.name].troops;
+          return { territory: t, deficit };
+        }).sort((a, b) => b.deficit - a.deficit);
         if (threats.length > 0) {
           const placements = []; let remaining = armies;
-          for (const t of threats.slice(0, 3)) {
+          for (const t of threats.slice(0, 2)) {
             if (remaining <= 0) break;
-            const amt = Math.min(remaining, Math.max(1, t.deficit + 2));
+            const amt = Math.min(remaining, Math.max(2, t.deficit + 2));
             placements.push({ territory: t.territory.name, amount: amt });
             remaining -= amt;
           }
-          if (remaining > 0 && placements.length > 0) placements[0].amount += remaining;
+          if (remaining > 0) {
+            const anchor = threats[0]?.territory || territories[0];
+            if (anchor) placements.push({ territory: anchor.name, amount: remaining });
+          }
           return placements;
         }
         return territories.length > 0 ? [{ territory: territories[0].name, amount: armies }] : [];
@@ -993,12 +999,13 @@
         const attacks = [];
         for (const t of game.getPlayerTerritories(player.id)) {
           const myTroops = game.territories[t.name].troops;
-          if (myTroops <= 3) continue;
+          if (myTroops <= 2) continue;
           for (const e of game.getEnemyNeighbors(t.name, player.id)) {
-            if (myTroops >= e.troops * 2) attacks.push({ from: t.name, to: e.name, maxAttacks: 8 });
+            const ratio = myTroops / (e.troops + 1);
+            if (ratio >= 1.8) attacks.push({ from: t.name, to: e.name, ratio, maxAttacks: 12 });
           }
         }
-        return attacks.slice(0, 4);
+        return attacks.sort((a, b) => (b.ratio || 0) - (a.ratio || 0)).slice(0, 6);
       },
       fortify(game, player) {
         const territories = game.getPlayerTerritories(player.id);
@@ -1018,10 +1025,14 @@
       placeArmies(game, player, armies) {
         const target = findContinentTarget(game, player.id);
         if (target) {
-          for (const owned of target.owned) {
-            const tData = game.allTerritories.find(t => t.name === owned.name);
-            if (tData) for (const m of target.missing) if (tData.borders.includes(m.name)) return [{ territory: owned.name, amount: armies }];
-          }
+          const adjacency = target.owned
+            .map(owned => {
+              const tData = game.allTerritories.find(t => t.name === owned.name);
+              const hits = tData ? target.missing.filter(m => tData.borders.includes(m.name)).length : 0;
+              return { territory: owned, hits };
+            })
+            .sort((a, b) => b.hits - a.hits);
+          if (adjacency.length > 0 && adjacency[0].hits > 0) return [{ territory: adjacency[0].territory.name, amount: armies }];
         }
         return STRATEGIES.defensive.placeArmies(game, player, armies);
       },
@@ -1035,7 +1046,7 @@
             if (tData) for (const m of target.missing) if (tData.borders.includes(m.name)) attacks.push({ from: t.name, to: m.name, maxAttacks: 15 });
           }
         }
-        if (attacks.length < 3) attacks.push(...STRATEGIES.aggressive.attack(game, player).slice(0, 3));
+        if (attacks.length < 3) attacks.push(...STRATEGIES.aggressive.attack(game, player).slice(0, 4));
         return attacks.slice(0, 8);
       },
       fortify(game, player) { return STRATEGIES.defensive.fortify(game, player); }
@@ -1121,9 +1132,11 @@
       placeArmies(game, player, armies) {
         const territories = game.getPlayerTerritories(player.id);
         if (territories.length === 0) return [];
+        const borders = territories.filter(t => game.getEnemyNeighbors(t.name, player.id).length > 0);
+        const pool = borders.length > 0 && Math.random() > 0.3 ? borders : territories;
         const placements = []; let remaining = armies;
         while (remaining > 0) {
-          const t = territories[Math.floor(Math.random() * territories.length)];
+          const t = pool[Math.floor(Math.random() * pool.length)];
           const amt = Math.min(remaining, Math.ceil(Math.random() * 4));
           placements.push({ territory: t.name, amount: amt });
           remaining -= amt;
@@ -1131,21 +1144,50 @@
         return placements;
       },
       attack(game, player) {
-        const attacks = [];
-        for (const t of game.getPlayerTerritories(player.id)) {
-          if (game.territories[t.name].troops <= 1) continue;
-          const enemies = game.getEnemyNeighbors(t.name, player.id);
-          if (enemies.length > 0) attacks.push({ from: t.name, to: enemies[Math.floor(Math.random() * enemies.length)].name, maxAttacks: 5 });
+        if (Math.random() < 0.2) return [];
+        const attacks = [], attackable = game.getPlayerTerritories(player.id).filter(t => game.territories[t.name].troops > 1);
+        for (let i = 0; i < Math.ceil(Math.random() * 5) && attackable.length > 0; i++) {
+          const from = attackable[Math.floor(Math.random() * attackable.length)];
+          const enemies = game.getEnemyNeighbors(from.name, player.id);
+          if (enemies.length > 0) attacks.push({ from: from.name, to: enemies[Math.floor(Math.random() * enemies.length)].name, maxAttacks: Math.ceil(Math.random() * 10) });
         }
         return attacks;
       },
+      fortify(game, player) { return Math.random() < 0.4 ? null : STRATEGIES.defensive.fortify(game, player); }
+    },
+
+    balanced: {
+      name: "Balanced",
+      placeArmies(game, player, armies) {
+        const target = findContinentTarget(game, player.id);
+        if (target) return STRATEGIES.continental.placeArmies(game, player, armies);
+        return STRATEGIES.defensive.placeArmies(game, player, armies);
+      },
+      attack(game, player) {
+        const defensive = STRATEGIES.defensive.attack(game, player);
+        const aggressive = STRATEGIES.aggressive.attack(game, player);
+        return [...defensive, ...aggressive.slice(0, 2)];
+      },
+      fortify(game, player) { return STRATEGIES.defensive.fortify(game, player); }
+    },
+
+    emperor: {
+      name: "Emperor",
+      placeArmies(game, player, armies) {
+        const target = findContinentTarget(game, player.id);
+        if (target) return STRATEGIES.continental.placeArmies(game, player, armies);
+        return STRATEGIES.opportunist.placeArmies(game, player, armies);
+      },
+      attack(game, player) {
+        const attacks = [
+          ...STRATEGIES.eliminator.attack(game, player),
+          ...STRATEGIES.opportunist.attack(game, player),
+          ...STRATEGIES.aggressive.attack(game, player)
+        ];
+        return attacks.slice(0, 12);
+      },
       fortify(game, player) {
-        const territories = game.getPlayerTerritories(player.id);
-        if (territories.length < 2) return null;
-        const from = territories.find(t => game.territories[t.name].troops > 1);
-        const to = territories[Math.floor(Math.random() * territories.length)];
-        if (!from || from.name === to.name || !game.areConnected(from.name, to.name, player.id)) return null;
-        return { from: from.name, to: to.name, amount: 1 };
+        return STRATEGIES.aggressive.fortify(game, player) || STRATEGIES.defensive.fortify(game, player);
       }
     }
   };
@@ -1185,6 +1227,59 @@
   let showTroopInput = () => {};
   let showDiceResult = () => {};
 
+  const COUNTRY_NAME_PARTS = {
+    adjectives: [
+      'United', 'People\'s', 'Royal', 'Free', 'Grand', 'New', 'Old', 'Northern', 'Southern', 'Eastern', 'Western',
+      'Golden', 'Silver', 'Crimson', 'Emerald', 'Azure', 'Iron', 'Verdant', 'Radiant', 'Stormy', 'Quiet', 'Sunny',
+      'Brave', 'Merry', 'Noble', 'Clever', 'Cosmic', 'Wandering', 'Arcadian', 'Bumbling', 'Curious', 'Lucky',
+      'French', 'Roman', 'Nordic', 'Maritime', 'Ivory', 'Obsidian', 'Autumn', 'Crystal', 'Serene', 'Starlit'
+    ],
+    regions: [
+      'Highland', 'Lowland', 'River', 'Coastal', 'Island', 'Mountain', 'Desert', 'Forest', 'Frontier', 'Harbor',
+      'Tundra', 'Prairie', 'Canyon', 'Marsh', 'Delta', 'Steppe', 'Sunset', 'Gulf', 'Northern', 'Southern'
+    ],
+    governments: [
+      'Republic', 'Kingdom', 'Federation', 'Empire', 'Commonwealth', 'Union', 'Duchy', 'Sultanate',
+      'Principality', 'Dominion', 'Confederacy', 'Alliance'
+    ],
+    realms: [
+      'Isles', 'Marches', 'Plains', 'Shores', 'Haven', 'Reach', 'Crown', 'Throne', 'Hills', 'Ridges',
+      'Gardens', 'Harbor', 'Heights', 'Fields', 'Fjords', 'Coast'
+    ]
+  };
+
+  function pick(list) {
+    return list[Math.floor(Math.random() * list.length)];
+  }
+
+  function buildCountryName() {
+    const templates = [
+      () => `The ${pick(COUNTRY_NAME_PARTS.adjectives)} ${pick(COUNTRY_NAME_PARTS.governments)}`,
+      () => `${pick(COUNTRY_NAME_PARTS.adjectives)} ${pick(COUNTRY_NAME_PARTS.governments)}`,
+      () => `The ${pick(COUNTRY_NAME_PARTS.regions)} ${pick(COUNTRY_NAME_PARTS.governments)}`,
+      () => `${pick(COUNTRY_NAME_PARTS.regions)} ${pick(COUNTRY_NAME_PARTS.governments)}`,
+      () => `The ${pick(COUNTRY_NAME_PARTS.adjectives)} ${pick(COUNTRY_NAME_PARTS.realms)}`,
+      () => `${pick(COUNTRY_NAME_PARTS.adjectives)} ${pick(COUNTRY_NAME_PARTS.realms)}`
+    ];
+    return templates[Math.floor(Math.random() * templates.length)]();
+  }
+
+  function shuffle(list) {
+    for (let i = list.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [list[i], list[j]] = [list[j], list[i]];
+    }
+    return list;
+  }
+
+  function generateCountryName(existingNames = new Set()) {
+    for (let attempt = 0; attempt < 50; attempt++) {
+      const name = buildCountryName();
+      if (!existingNames.has(name)) return name;
+    }
+    return buildCountryName();
+  }
+
   function setCallbacks(ui, report, troop, dice) {
     updateUI = ui; showReport = report; showTroopInput = troop; showDiceResult = dice;
   }
@@ -1192,17 +1287,24 @@
   function initPlayers(name, count, spectator = false) {
     G.players = [];
     G.spectatorMode = spectator;
+    const usedNames = new Set();
+    if (name) usedNames.add(name);
+    const strategyPool = shuffle([...STRATEGY_NAMES]);
     if (spectator) {
       for (let i = 0; i < count; i++) {
-        const strategy = STRATEGY_NAMES[Math.floor(Math.random() * STRATEGY_NAMES.length)];
-        G.players.push({ id: i, name: `${STRATEGIES[strategy].name} AI`, color: PLAYER_COLORS[i].hex, colorName: PLAYER_COLORS[i].name, isHuman: false, strategy, cards: [], eliminated: false });
+        const strategy = strategyPool[i % strategyPool.length];
+        const countryName = generateCountryName(usedNames);
+        usedNames.add(countryName);
+        G.players.push({ id: i, name: countryName, color: PLAYER_COLORS[i].hex, colorName: PLAYER_COLORS[i].name, isHuman: false, strategy, strategyName: STRATEGIES[strategy].name, cards: [], eliminated: false });
       }
       G.humanPlayerId = -1;
     } else {
       G.players.push({ id: 0, name, color: PLAYER_COLORS[0].hex, colorName: PLAYER_COLORS[0].name, isHuman: true, cards: [], eliminated: false });
       for (let i = 1; i < count; i++) {
-        const strategy = STRATEGY_NAMES[Math.floor(Math.random() * STRATEGY_NAMES.length)];
-        G.players.push({ id: i, name: `${STRATEGIES[strategy].name} AI`, color: PLAYER_COLORS[i].hex, colorName: PLAYER_COLORS[i].name, isHuman: false, strategy, cards: [], eliminated: false });
+        const strategy = strategyPool[(i - 1) % strategyPool.length];
+        const countryName = generateCountryName(usedNames);
+        usedNames.add(countryName);
+        G.players.push({ id: i, name: countryName, color: PLAYER_COLORS[i].hex, colorName: PLAYER_COLORS[i].name, isHuman: false, strategy, strategyName: STRATEGIES[strategy].name, cards: [], eliminated: false });
       }
       G.humanPlayerId = 0;
     }
@@ -1537,6 +1639,7 @@
 
   window.RiskGame = {
     setCallbacks,
+    generateCountryName,
     initPlayers,
     randomAssignTerritories,
     randomPlaceTroops,
