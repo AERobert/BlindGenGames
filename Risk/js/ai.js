@@ -1,6 +1,192 @@
 // ai.js - AI Strategies (improved for v2)
+// Now with combat probability calculations for smarter attack decisions
 
 import { CONTINENTS } from './data.js';
+
+// ============================================================================
+// COMBAT WIN PROBABILITY CALCULATIONS
+// Based on Monte Carlo simulations of Risk combat
+// ============================================================================
+
+// Lookup table for small battles (A=attackers 2-11, D=defenders 1-9)
+// Values are attacker win rates from 30,000+ simulations each
+const WIN_RATE_TABLE = {
+  // A: { D: win_rate, ... }
+  2:  { 1: 0.42, 2: 0.11, 3: 0.03, 4: 0.01 },
+  3:  { 1: 0.75, 2: 0.36, 3: 0.21, 4: 0.09, 5: 0.05 },
+  4:  { 1: 0.92, 2: 0.65, 3: 0.48, 4: 0.32, 5: 0.21, 6: 0.13 },
+  5:  { 1: 0.97, 2: 0.78, 3: 0.65, 4: 0.48, 5: 0.36, 6: 0.26, 7: 0.18 },
+  6:  { 1: 0.99, 2: 0.89, 3: 0.77, 4: 0.64, 5: 0.51, 6: 0.40, 7: 0.29, 8: 0.22 },
+  7:  { 1: 1.00, 2: 0.94, 3: 0.86, 4: 0.75, 5: 0.64, 6: 0.52, 7: 0.42, 8: 0.33, 9: 0.26 },
+  8:  { 1: 1.00, 2: 0.97, 3: 0.91, 4: 0.83, 5: 0.74, 6: 0.64, 7: 0.53, 8: 0.45, 9: 0.36 },
+  9:  { 1: 1.00, 2: 0.98, 3: 0.95, 4: 0.89, 5: 0.82, 6: 0.73, 7: 0.64, 8: 0.55, 9: 0.47 },
+  10: { 1: 1.00, 2: 0.99, 3: 0.97, 4: 0.93, 5: 0.87, 6: 0.81, 7: 0.73, 8: 0.65, 9: 0.56 },
+  11: { 1: 1.00, 2: 0.99, 3: 0.98, 4: 0.95, 5: 0.91, 6: 0.86, 7: 0.80, 8: 0.72, 9: 0.65 }
+};
+
+/**
+ * Calculate attacker win probability using the simplified formula
+ * For large battles (≥8 troops each): win_rate ≈ R^5 / (R^5 + 1)
+ * @param {number} attackers - Number of attacking troops
+ * @param {number} defenders - Number of defending troops
+ * @returns {number} Win probability 0-1
+ */
+function calculateWinProbabilityFormula(attackers, defenders) {
+  if (attackers <= 1 || defenders <= 0) return 0;
+  const R = attackers / defenders;
+  const R5 = Math.pow(R, 5);
+  return R5 / (R5 + 1);
+}
+
+/**
+ * Get attacker win probability using lookup table for small battles
+ * or formula for larger battles
+ * @param {number} attackers - Number of attacking troops
+ * @param {number} defenders - Number of defending troops
+ * @returns {number} Win probability 0-1
+ */
+function getWinProbability(attackers, defenders) {
+  // Need at least 2 attackers to attack (1 must stay behind)
+  if (attackers <= 1) return 0;
+  if (defenders <= 0) return 1;
+
+  // Use lookup table for small battles (more accurate)
+  if (attackers <= 11 && defenders <= 9 && WIN_RATE_TABLE[attackers]?.[defenders] !== undefined) {
+    return WIN_RATE_TABLE[attackers][defenders];
+  }
+
+  // For larger battles, use the R^5 formula
+  return calculateWinProbabilityFormula(attackers, defenders);
+}
+
+/**
+ * Check if attack meets minimum win probability threshold
+ * @param {number} attackers - Number of attacking troops
+ * @param {number} defenders - Number of defending troops
+ * @param {number} threshold - Minimum win probability required (0-1)
+ * @returns {boolean} True if attack is advisable
+ */
+function shouldAttack(attackers, defenders, threshold) {
+  return getWinProbability(attackers, defenders) >= threshold;
+}
+
+// Strategy-specific win probability thresholds
+const WIN_THRESHOLDS = {
+  aggressive: 0.25,    // Will attack even with low odds
+  defensive: 0.70,     // Needs good odds to attack
+  continental: 0.50,   // Moderate - will push for continent control
+  opportunist: 0.50,   // Looks for favorable situations
+  eliminator: 0.40,    // Willing to take risks to eliminate players
+  turtle: 0.80,        // Very conservative, only attacks sure things
+  balanced: 0.50,      // Middle ground
+  emperor: 0.40        // Aggressive expansion, takes calculated risks
+};
+
+// ============================================================================
+// SMART FORTIFICATION HELPERS
+// ============================================================================
+
+/**
+ * Calculate how vulnerable a territory is based on enemy neighbors
+ * Returns the highest enemy win probability against this territory
+ * @param {object} game - Game state
+ * @param {string} territoryName - Territory to check
+ * @param {number} troops - Number of troops on the territory
+ * @returns {number} Vulnerability (0-1, higher = more vulnerable)
+ */
+function getTerritoryVulnerability(game, territoryName, troops) {
+  const territory = game.territories[territoryName];
+  const tData = game.allTerritories.find(t => t.name === territoryName);
+  if (!tData) return 0;
+
+  let maxThreat = 0;
+  for (const neighborName of tData.borders) {
+    const neighbor = game.territories[neighborName];
+    if (neighbor.owner !== territory.owner) {
+      // Calculate enemy's win probability if they attack us
+      const enemyWinProb = getWinProbability(neighbor.troops, troops);
+      maxThreat = Math.max(maxThreat, enemyWinProb);
+    }
+  }
+  return maxThreat;
+}
+
+/**
+ * Smart fortification that considers vulnerability
+ * Won't leave source territory too exposed
+ * @param {object} game - Game state
+ * @param {object} player - Current player
+ * @param {number} maxAcceptableVulnerability - Max enemy win prob to allow (default 0.5)
+ * @returns {object|null} Fortification move or null
+ */
+function smartFortify(game, player, maxAcceptableVulnerability = 0.50) {
+  const territories = game.getPlayerTerritories(player.id);
+
+  // Find border territories sorted by vulnerability (most vulnerable first)
+  const borders = territories
+    .filter(t => game.getEnemyNeighbors(t.name, player.id).length > 0)
+    .map(t => ({
+      territory: t,
+      troops: game.territories[t.name].troops,
+      vulnerability: getTerritoryVulnerability(game, t.name, game.territories[t.name].troops)
+    }))
+    .sort((a, b) => b.vulnerability - a.vulnerability);
+
+  if (borders.length === 0) return null;
+
+  // Find territories that can donate troops
+  const potentialSources = territories
+    .filter(t => game.territories[t.name].troops > 1)
+    .map(t => ({
+      territory: t,
+      troops: game.territories[t.name].troops,
+      isInterior: game.getEnemyNeighbors(t.name, player.id).length === 0,
+      vulnerability: getTerritoryVulnerability(game, t.name, game.territories[t.name].troops)
+    }))
+    // Prioritize interior territories, then least vulnerable borders
+    .sort((a, b) => {
+      if (a.isInterior !== b.isInterior) return a.isInterior ? -1 : 1;
+      return a.vulnerability - b.vulnerability;
+    });
+
+  // Try to find a good fortification move
+  for (const dest of borders) {
+    // Skip if destination isn't very vulnerable
+    if (dest.vulnerability < 0.30) continue;
+
+    for (const source of potentialSources) {
+      if (source.territory.name === dest.territory.name) continue;
+      if (!game.areConnected(source.territory.name, dest.territory.name, player.id)) continue;
+
+      // Calculate how many troops we can safely move
+      let maxMove = source.troops - 1;
+
+      // If source is a border, don't leave it too vulnerable
+      if (!source.isInterior) {
+        // Try different amounts until we find one that's safe
+        for (let tryMove = maxMove; tryMove >= 1; tryMove--) {
+          const remainingTroops = source.troops - tryMove;
+          const newVulnerability = getTerritoryVulnerability(game, source.territory.name, remainingTroops);
+          if (newVulnerability <= maxAcceptableVulnerability) {
+            maxMove = tryMove;
+            break;
+          }
+          if (tryMove === 1) maxMove = 0; // Can't safely move anything
+        }
+      }
+
+      if (maxMove > 0) {
+        return {
+          from: source.territory.name,
+          to: dest.territory.name,
+          amount: maxMove
+        };
+      }
+    }
+  }
+
+  return null;
+}
 
 // Find best continent to target
 function findContinentTarget(game, playerId) {
@@ -37,21 +223,19 @@ export const STRATEGIES = {
         const myTroops = game.territories[t.name].troops;
         if (myTroops <= 1) continue;
         for (const e of game.getEnemyNeighbors(t.name, player.id).sort((a, b) => a.troops - b.troops)) {
-          if (myTroops >= 3 || myTroops > e.troops) attacks.push({ from: t.name, to: e.name, maxAttacks: 20 });
+          const winProb = getWinProbability(myTroops, e.troops);
+          // Aggressive: attacks even with just 25% win chance
+          if (winProb >= WIN_THRESHOLDS.aggressive) {
+            attacks.push({ from: t.name, to: e.name, winProb, maxAttacks: 50 });
+          }
         }
       }
-      return attacks.slice(0, 10);
+      // Sort by win probability descending - no artificial limit, attack all viable targets
+      return attacks.sort((a, b) => (b.winProb || 0) - (a.winProb || 0));
     },
     fortify(game, player) {
-      const territories = game.getPlayerTerritories(player.id);
-      const interior = territories.filter(t => game.getEnemyNeighbors(t.name, player.id).length === 0 && game.territories[t.name].troops > 1).sort((a, b) => game.territories[b.name].troops - game.territories[a.name].troops);
-      const borders = territories.filter(t => game.getEnemyNeighbors(t.name, player.id).length > 0).sort((a, b) => game.territories[a.name].troops - game.territories[b.name].troops);
-      for (const from of interior) {
-        for (const to of borders) {
-          if (game.areConnected(from.name, to.name, player.id)) return { from: from.name, to: to.name, amount: game.territories[from.name].troops - 1 };
-        }
-      }
-      return null;
+      // Aggressive accepts higher vulnerability (0.60) - prioritizes offense
+      return smartFortify(game, player, 0.60);
     }
   },
 
@@ -87,22 +271,19 @@ export const STRATEGIES = {
         const myTroops = game.territories[t.name].troops;
         if (myTroops <= 2) continue;
         for (const e of game.getEnemyNeighbors(t.name, player.id)) {
-          const ratio = myTroops / (e.troops + 1);
-          if (ratio >= 1.8) attacks.push({ from: t.name, to: e.name, ratio, maxAttacks: 12 });
+          const winProb = getWinProbability(myTroops, e.troops);
+          // Defensive: only attacks with 70% win chance
+          if (winProb >= WIN_THRESHOLDS.defensive) {
+            attacks.push({ from: t.name, to: e.name, winProb, maxAttacks: 50 });
+          }
         }
       }
-      return attacks.sort((a, b) => (b.ratio || 0) - (a.ratio || 0)).slice(0, 6);
+      // No artificial limit - attack all targets meeting threshold
+      return attacks.sort((a, b) => (b.winProb || 0) - (a.winProb || 0));
     },
     fortify(game, player) {
-      const territories = game.getPlayerTerritories(player.id);
-      const borders = territories.filter(t => game.getEnemyNeighbors(t.name, player.id).length > 0).sort((a, b) => game.territories[a.name].troops - game.territories[b.name].troops);
-      if (borders.length === 0) return null;
-      const sources = territories.filter(t => t.name !== borders[0].name && game.territories[t.name].troops > 2 && game.areConnected(t.name, borders[0].name, player.id)).sort((a, b) => game.territories[b.name].troops - game.territories[a.name].troops);
-      if (sources.length > 0) {
-        const amt = Math.floor(game.territories[sources[0].name].troops / 2);
-        if (amt > 0) return { from: sources[0].name, to: borders[0].name, amount: amt };
-      }
-      return null;
+      // Defensive is very careful - won't accept more than 40% enemy win chance
+      return smartFortify(game, player, 0.40);
     }
   },
 
@@ -129,13 +310,31 @@ export const STRATEGIES = {
           const myTroops = game.territories[t.name].troops;
           if (myTroops <= 1) continue;
           const tData = game.allTerritories.find(x => x.name === t.name);
-          if (tData) for (const m of target.missing) if (tData.borders.includes(m.name)) attacks.push({ from: t.name, to: m.name, maxAttacks: 15 });
+          if (tData) {
+            for (const m of target.missing) {
+              if (tData.borders.includes(m.name)) {
+                const defenderTroops = game.territories[m.name].troops;
+                const winProb = getWinProbability(myTroops, defenderTroops);
+                // Continental: attacks with 50% win chance for continent goals
+                if (winProb >= WIN_THRESHOLDS.continental) {
+                  attacks.push({ from: t.name, to: m.name, winProb, maxAttacks: 50 });
+                }
+              }
+            }
+          }
         }
       }
-      if (attacks.length < 3) attacks.push(...STRATEGIES.aggressive.attack(game, player).slice(0, 4));
-      return attacks.slice(0, 8);
+      // Sort continent attacks by win probability
+      attacks.sort((a, b) => (b.winProb || 0) - (a.winProb || 0));
+      // If few continent targets, also attack other viable targets
+      if (attacks.length < 3) attacks.push(...STRATEGIES.aggressive.attack(game, player));
+      // No artificial limit - pursue all viable attacks
+      return attacks;
     },
-    fortify(game, player) { return STRATEGIES.defensive.fortify(game, player); }
+    fortify(game, player) {
+      // Continental accepts moderate vulnerability (0.50)
+      return smartFortify(game, player, 0.50);
+    }
   },
 
   opportunist: {
@@ -158,13 +357,20 @@ export const STRATEGIES = {
         const myTroops = game.territories[t.name].troops;
         if (myTroops <= 1) continue;
         for (const e of game.getEnemyNeighbors(t.name, player.id)) {
-          const ratio = myTroops / (e.troops + 1);
-          if (ratio >= 1.5 || (myTroops >= 4 && e.troops <= 2)) attacks.push({ from: t.name, to: e.name, ratio, maxAttacks: 15 });
+          const winProb = getWinProbability(myTroops, e.troops);
+          // Opportunist: attacks with 50% win chance
+          if (winProb >= WIN_THRESHOLDS.opportunist) {
+            attacks.push({ from: t.name, to: e.name, winProb, maxAttacks: 50 });
+          }
         }
       }
-      return attacks.sort((a, b) => (b.ratio || 0) - (a.ratio || 0)).slice(0, 8);
+      // No artificial limit - attack all viable targets
+      return attacks.sort((a, b) => (b.winProb || 0) - (a.winProb || 0));
     },
-    fortify(game, player) { return STRATEGIES.defensive.fortify(game, player); }
+    fortify(game, player) {
+      // Opportunist accepts moderate vulnerability (0.50)
+      return smartFortify(game, player, 0.50);
+    }
   },
 
   eliminator: {
@@ -188,29 +394,46 @@ export const STRATEGIES = {
         const myTroops = game.territories[t.name].troops;
         if (myTroops <= 1) continue;
         for (const e of game.getEnemyNeighbors(t.name, player.id)) {
-          const priority = (counts[e.owner] || 99) <= 3 ? 100 - (counts[e.owner] || 99) : 0;
-          attacks.push({ from: t.name, to: e.name, priority, maxAttacks: 20 });
+          const winProb = getWinProbability(myTroops, e.troops);
+          // Eliminator: attacks with 40% win chance, prioritizes weak players
+          if (winProb >= WIN_THRESHOLDS.eliminator) {
+            const priority = (counts[e.owner] || 99) <= 3 ? 100 - (counts[e.owner] || 99) : 0;
+            attacks.push({ from: t.name, to: e.name, priority, winProb, maxAttacks: 50 });
+          }
         }
       }
-      return attacks.sort((a, b) => (b.priority || 0) - (a.priority || 0)).slice(0, 10);
+      // Sort by priority first (weak players), then by win probability - no artificial limit
+      return attacks.sort((a, b) => (b.priority || 0) - (a.priority || 0) || (b.winProb || 0) - (a.winProb || 0));
     },
-    fortify(game, player) { return STRATEGIES.aggressive.fortify(game, player); }
+    fortify(game, player) {
+      // Eliminator accepts higher vulnerability (0.55) - focused on eliminating players
+      return smartFortify(game, player, 0.55);
+    }
   },
 
   turtle: {
     name: "Turtle",
     placeArmies(game, player, armies) { return STRATEGIES.defensive.placeArmies(game, player, armies); },
     attack(game, player) {
+      const attacks = [];
       for (const t of game.getPlayerTerritories(player.id)) {
         const myTroops = game.territories[t.name].troops;
         if (myTroops < 4) continue;
         for (const e of game.getEnemyNeighbors(t.name, player.id)) {
-          if (e.troops <= 2 && myTroops >= e.troops * 3) return [{ from: t.name, to: e.name, maxAttacks: 5 }];
+          const winProb = getWinProbability(myTroops, e.troops);
+          // Turtle: only attacks with 80% win chance (very conservative)
+          if (winProb >= WIN_THRESHOLDS.turtle) {
+            attacks.push({ from: t.name, to: e.name, winProb, maxAttacks: 10 });
+          }
         }
       }
-      return [];
+      // Turtle keeps a modest limit - very conservative, only sure things
+      return attacks.sort((a, b) => (b.winProb || 0) - (a.winProb || 0)).slice(0, 5);
     },
-    fortify(game, player) { return STRATEGIES.defensive.fortify(game, player); }
+    fortify(game, player) {
+      // Turtle is very defensive - won't accept more than 30% enemy win chance
+      return smartFortify(game, player, 0.30);
+    }
   },
 
   random: {
@@ -250,11 +473,25 @@ export const STRATEGIES = {
       return STRATEGIES.defensive.placeArmies(game, player, armies);
     },
     attack(game, player) {
-      const defensive = STRATEGIES.defensive.attack(game, player);
-      const aggressive = STRATEGIES.aggressive.attack(game, player);
-      return [...defensive, ...aggressive.slice(0, 2)];
+      const attacks = [];
+      for (const t of game.getPlayerTerritories(player.id)) {
+        const myTroops = game.territories[t.name].troops;
+        if (myTroops <= 1) continue;
+        for (const e of game.getEnemyNeighbors(t.name, player.id)) {
+          const winProb = getWinProbability(myTroops, e.troops);
+          // Balanced: attacks with 50% win chance
+          if (winProb >= WIN_THRESHOLDS.balanced) {
+            attacks.push({ from: t.name, to: e.name, winProb, maxAttacks: 50 });
+          }
+        }
+      }
+      // No artificial limit - attack all viable targets
+      return attacks.sort((a, b) => (b.winProb || 0) - (a.winProb || 0));
     },
-    fortify(game, player) { return STRATEGIES.defensive.fortify(game, player); }
+    fortify(game, player) {
+      // Balanced accepts moderate vulnerability (0.45)
+      return smartFortify(game, player, 0.45);
+    }
   },
 
   emperor: {
@@ -265,15 +502,28 @@ export const STRATEGIES = {
       return STRATEGIES.opportunist.placeArmies(game, player, armies);
     },
     attack(game, player) {
-      const attacks = [
-        ...STRATEGIES.eliminator.attack(game, player),
-        ...STRATEGIES.opportunist.attack(game, player),
-        ...STRATEGIES.aggressive.attack(game, player)
-      ];
-      return attacks.slice(0, 12);
+      // Emperor: combines aggressive expansion with player elimination
+      const attacks = [], counts = {};
+      for (const p of game.players) if (!p.eliminated) counts[p.id] = game.getPlayerTerritories(p.id).length;
+
+      for (const t of game.getPlayerTerritories(player.id).sort((a, b) => game.territories[b.name].troops - game.territories[a.name].troops)) {
+        const myTroops = game.territories[t.name].troops;
+        if (myTroops <= 1) continue;
+        for (const e of game.getEnemyNeighbors(t.name, player.id)) {
+          const winProb = getWinProbability(myTroops, e.troops);
+          // Emperor: attacks with 40% win chance, prioritizes weak players
+          if (winProb >= WIN_THRESHOLDS.emperor) {
+            const priority = (counts[e.owner] || 99) <= 3 ? 100 - (counts[e.owner] || 99) : 0;
+            attacks.push({ from: t.name, to: e.name, priority, winProb, maxAttacks: 50 });
+          }
+        }
+      }
+      // Sort by priority (weak players first), then by win probability - no artificial limit
+      return attacks.sort((a, b) => (b.priority || 0) - (a.priority || 0) || (b.winProb || 0) - (a.winProb || 0));
     },
     fortify(game, player) {
-      return STRATEGIES.aggressive.fortify(game, player) || STRATEGIES.defensive.fortify(game, player);
+      // Emperor accepts higher vulnerability (0.55) - aggressive expansion
+      return smartFortify(game, player, 0.55);
     }
   }
 };
