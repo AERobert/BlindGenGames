@@ -81,6 +81,7 @@ button:disabled { background: #666; cursor: not-allowed; }
 .quick-jump-matches { margin-top: 15px; max-height: 250px; overflow-y: auto; }
 .quick-jump-match { padding: 10px; background: var(--bg); margin: 5px 0; border-radius: 4px; cursor: pointer; }
 .quick-jump-match:hover { background: var(--highlight); }
+.quick-jump-match.active { background: var(--highlight); outline: 2px solid var(--accent); }
 
 /* Help */
 .help-dialog { max-width: 900px; }

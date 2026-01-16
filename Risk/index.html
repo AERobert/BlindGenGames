@@ -133,7 +133,7 @@
   <!-- OVERLAYS -->
   <div id="quick-jump-overlay" class="overlay hidden">
     <div class="dialog">
-      <h2>Quick Jump (/)</h2>
+      <h2>Quick Jump (G or /)</h2>
       <input type="text" id="quick-jump-input" placeholder="Type territory name..." aria-label="Search territories">
       <div id="quick-jump-matches" class="quick-jump-matches"></div>
       <div class="dialog-buttons"><button onclick="ui.hideQuickJump()">Cancel (Esc)</button></div>
@@ -144,7 +144,7 @@
     <div class="dialog">
       <h2 id="troop-input-title">Move Troops</h2>
       <p id="troop-input-desc"></p>
-      <input type="number" id="troop-input" min="1" max="99">
+      <input type="text" id="troop-input" inputmode="numeric" pattern="[0-9]*|[Aa]" aria-label="Number of troops or A for all" min="1" max="99">
       <p>Min: <span id="troop-min">1</span> | Max: <span id="troop-max">99</span></p>
       <div class="dialog-buttons">
         <button onclick="ui.confirmTroopInput()">Confirm (Enter)</button>
@@ -177,18 +177,17 @@
       <div class="key-list">
         <span class="key-name">I</span><span>North</span>
         <span class="key-name">J</span><span>West</span>
-        <span class="key-name">K</span><span>Current (announce)</span>
+        <span class="key-name">K</span><span>Select/Confirm (same as Enter)</span>
         <span class="key-name">L</span><span>East</span>
         <span class="key-name">M</span><span>South</span>
         <span class="key-name">U/O</span><span>Northwest/Northeast</span>
         <span class="key-name">N/,</span><span>Southwest/Southeast</span>
-        <span class="key-name">/</span><span>Quick jump to territory</span>
+        <span class="key-name">G or /</span><span>Quick jump to territory</span>
       </div>
       <h3>Actions</h3>
       <div class="key-list">
         <span class="key-name">Space</span><span>Claim/Place/Select</span>
         <span class="key-name">Enter</span><span>Attack/Move troops</span>
-        <span class="key-name">A</span><span>Place all armies</span>
         <span class="key-name">T</span><span>Trade cards</span>
         <span class="key-name">E</span><span>End phase/turn</span>
         <span class="key-name">X</span><span>Cancel selection</span>
@@ -420,35 +419,27 @@
       const t = currentTerritory();
       if (G.territories[t.name].owner !== player.id) { sounds.play('error'); speech.speak('Select your territory.'); return; }
       if (G.phase === 'setup-reinforce') {
-        G.territories[t.name].troops++;
-        G.setupArmies[player.id]--;
-        sounds.play('place');
-        speech.speak(`Placed on ${t.name}. ${G.setupArmies[player.id]} remaining.`);
-        gameModule.nextSetupPlayer();
+        const max = G.setupArmies[player.id];
+        if (max <= 0) { sounds.play('error'); speech.speak('No armies.'); return; }
+        const maxPerTurn = Math.min(3, max);
+        ui.showTroopInput('Place Armies', `How many armies to place on ${t.name}?`, 1, maxPerTurn, amt => {
+          G.territories[t.name].troops += amt;
+          G.setupArmies[player.id] -= amt;
+          sounds.play('place');
+          speech.speak(`Placed ${amt} on ${t.name}. ${G.setupArmies[player.id]} remaining.`);
+          gameModule.nextSetupPlayer();
+        });
       } else if (G.phase === 'reinforce') {
         if (G.armiesToPlace <= 0) { sounds.play('error'); speech.speak('No armies.'); return; }
-        G.territories[t.name].troops++;
-        G.armiesToPlace--;
-        G.stats.troopsPlaced[player.id]++;
-        sounds.play('place');
-        speech.speak(`${t.name}: ${G.territories[t.name].troops}. ${G.armiesToPlace} left.`);
-        ui.updateUI();
+        ui.showTroopInput('Place Armies', `How many armies to place on ${t.name}?`, 1, G.armiesToPlace, amt => {
+          G.territories[t.name].troops += amt;
+          G.armiesToPlace -= amt;
+          G.stats.troopsPlaced[player.id] += amt;
+          sounds.play('place');
+          speech.speak(`${t.name}: ${G.territories[t.name].troops}. ${G.armiesToPlace} left.`);
+          ui.updateUI();
+        });
       }
-    }
-
-    function placeAllArmies() {
-      if (G.phase !== 'reinforce') return;
-      const player = currentPlayer();
-      if (!player.isHuman || G.armiesToPlace <= 0) return;
-      const t = currentTerritory();
-      if (G.territories[t.name].owner !== player.id) { sounds.play('error'); speech.speak('Select your territory.'); return; }
-      const amt = G.armiesToPlace;
-      G.territories[t.name].troops += amt;
-      G.stats.troopsPlaced[player.id] += amt;
-      G.armiesToPlace = 0;
-      sounds.play('place');
-      speech.speak(`Placed ${amt} on ${t.name}.`);
-      ui.updateUI();
     }
 
     function endReinforce() {
@@ -618,7 +609,9 @@
     document.addEventListener('keydown', e => {
       if (ui.isQuickJumpActive()) {
         if (e.key === 'Escape') { ui.hideQuickJump(); return; }
-        if (e.key === 'Enter') { document.querySelector('.quick-jump-match')?.click(); return; }
+        if (e.key === 'ArrowDown') { e.preventDefault(); ui.cycleQuickJumpMatch('down'); return; }
+        if (e.key === 'ArrowUp') { e.preventDefault(); ui.cycleQuickJumpMatch('up'); return; }
+        if (e.key === 'Enter') { ui.confirmQuickJumpSelection(); return; }
         return;
       }
       if (ui.isTroopInputActive()) {
@@ -632,7 +625,7 @@
 
       const key = e.key.toLowerCase();
       if (NAV_KEYS[key]) { e.preventDefault(); navigate(NAV_KEYS[key]); return; }
-      if (key === '/') { e.preventDefault(); ui.showQuickJump(); return; }
+      if (key === '/' || key === 'g') { e.preventDefault(); ui.showQuickJump(); return; }
       if (key === '?') { e.preventDefault(); ui.showHelp(); return; }
       if (key === '-' || e.code === 'Minus') { ui.announceClaimReport(); return; }
       const digitMatch = e.code?.match(/^Digit([1-6])$/);
@@ -646,9 +639,7 @@
       if (key === 'c') { ui.listCards(); return; }
       if (key === 'p') { ui.announcePhase(); return; }
       if (key === 'r') { speech.repeat(); return; }
-      if (key === 'k') { ui.announceTerritory(); return; }
-
-      if (key === ' ' || key === 'enter') {
+      if (key === ' ' || key === 'enter' || key === 'k') {
         e.preventDefault();
         if (!currentPlayer()?.isHuman) return;
         if (G.phase === 'claim') claimTerritory();
@@ -657,7 +648,6 @@
         else if (G.phase === 'fortify') G.fortifyFrom ? executeFortify() : selectFortifySource();
         return;
       }
-      if (key === 'a' && G.phase === 'reinforce') { placeAllArmies(); return; }
       if (key === 't' && G.phase === 'reinforce') { tradeCards(); return; }
       if (key === 'x') { if (G.phase === 'attack') cancelAttack(); else if (G.phase === 'fortify') cancelFortify(); return; }
       if (key === 'e') {
@@ -673,7 +663,7 @@
     document.getElementById('quick-jump-input')?.addEventListener('input', e => ui.updateQuickJumpMatches(e.target.value));
 
     // Expose to window
-    window.game = { startGame, resumeGame, claimTerritory, placeArmy, placeAllArmies, endReinforce, tradeCards, selectAttackSource, executeAttack, cancelAttack, endAttack, selectFortifySource, executeFortify, cancelFortify, endTurn, saveToFile, loadFromFile, downloadLog, updateAIDelayFromUI, toggleSpeech: speech.toggle, toggleSound: sounds.toggle, showHelp: ui.showHelp };
+    window.game = { startGame, resumeGame, claimTerritory, placeArmy, endReinforce, tradeCards, selectAttackSource, executeAttack, cancelAttack, endAttack, selectFortifySource, executeFortify, cancelFortify, endTurn, saveToFile, loadFromFile, downloadLog, updateAIDelayFromUI, toggleSpeech: speech.toggle, toggleSound: sounds.toggle, showHelp: ui.showHelp };
     window.ui = ui;
   </script>
 </body>

@@ -567,6 +567,8 @@
 
   let quickJumpActive = false, troopInputActive = false, diceActive = false, reportActive = false;
   let troopCallback = null, diceCallback = null;
+  let quickJumpMatches = [];
+  let quickJumpIndex = -1;
 
   function isQuickJumpActive() { return quickJumpActive; }
   function isTroopInputActive() { return troopInputActive; }
@@ -648,8 +650,8 @@
     if (!player?.isHuman && !G.spectatorMode) return;
     const btns = {
       'claim': '<button onclick="game.claimTerritory()">Claim (Space)</button>',
-      'setup-reinforce': '<button onclick="game.placeArmy()">Place Army (Space)</button>',
-      'reinforce': '<button onclick="game.placeArmy()">Place 1 (Space)</button><button onclick="game.placeAllArmies()">Place All (A)</button><button onclick="game.tradeCards()">Trade (T)</button><button onclick="game.endReinforce()">End (E)</button>',
+      'setup-reinforce': '<button onclick="game.placeArmy()">Place Armies (Space)</button>',
+      'reinforce': '<button onclick="game.placeArmy()">Place Armies (Space)</button><button onclick="game.tradeCards()">Trade (T)</button><button onclick="game.endReinforce()">End (E)</button>',
       'attack': '<button onclick="game.selectAttackSource()">Select (Space)</button><button onclick="game.executeAttack()">Attack (Enter)</button><button onclick="game.cancelAttack()">Cancel (X)</button><button onclick="game.endAttack()">End (E)</button>',
       'fortify': '<button onclick="game.selectFortifySource()">Select (Space)</button><button onclick="game.executeFortify()">Move (Enter)</button><button onclick="game.cancelFortify()">Cancel (X)</button><button onclick="game.endTurn()">End (E)</button>'
     };
@@ -684,10 +686,13 @@
     const input = document.getElementById('quick-jump-input');
     input.value = ''; input.focus();
     updateQuickJumpMatches('');
+    speech.speak('Quick jump. Type a territory name. Use arrow keys to choose, Enter to jump.');
   }
 
   function hideQuickJump() {
     quickJumpActive = false;
+    quickJumpMatches = [];
+    quickJumpIndex = -1;
     document.getElementById('quick-jump-overlay').classList.add('hidden');
     document.getElementById('current-territory')?.focus();
   }
@@ -695,17 +700,67 @@
   function updateQuickJumpMatches(query) {
     const container = document.getElementById('quick-jump-matches');
     container.innerHTML = '';
-    const matches = TERRITORIES.filter(t => t.name.toLowerCase().includes(query.toLowerCase())).slice(0, 10);
-    for (const t of matches) {
+    const normalized = query.trim().toLowerCase();
+    quickJumpMatches = TERRITORIES.filter(t => t.name.toLowerCase().includes(normalized)).slice(0, 10);
+    if (quickJumpMatches.length === 0) {
+      container.textContent = normalized ? 'No matches.' : 'Type to search.';
+      quickJumpIndex = -1;
+      return;
+    }
+    quickJumpIndex = 0;
+    quickJumpMatches.forEach((t, index) => {
       const ter = G.territories[t.name];
       const owner = ter.owner !== null ? G.players[ter.owner] : null;
       const div = document.createElement('div');
       div.className = 'quick-jump-match';
+      if (index === quickJumpIndex) div.classList.add('active');
       div.textContent = `${t.name} (${t.continent}) - ${owner ? `${owner.colorName}, ${ter.troops}` : 'Unclaimed'}`;
       div.style.borderLeft = `4px solid ${owner ? owner.color : '#666'}`;
       div.onclick = () => { G.currentTerritoryIdx = TERRITORIES.findIndex(x => x.name === t.name); hideQuickJump(); updateUI(); announceTerritory(); };
       container.appendChild(div);
+    });
+    if (normalized && quickJumpMatches.length === 1 && quickJumpMatches[0].name.toLowerCase() === normalized) {
+      confirmQuickJumpSelection();
     }
+    announceQuickJumpSelection();
+  }
+
+  function setQuickJumpSelection(index) {
+    if (quickJumpMatches.length === 0) return;
+    quickJumpIndex = (index + quickJumpMatches.length) % quickJumpMatches.length;
+    const container = document.getElementById('quick-jump-matches');
+    container.querySelectorAll('.quick-jump-match').forEach((item, idx) => {
+      item.classList.toggle('active', idx === quickJumpIndex);
+    });
+    const input = document.getElementById('quick-jump-input');
+    if (input) {
+      input.value = quickJumpMatches[quickJumpIndex].name;
+      input.setSelectionRange(input.value.length, input.value.length);
+    }
+    announceQuickJumpSelection();
+  }
+
+  function announceQuickJumpSelection() {
+    if (quickJumpIndex < 0 || quickJumpIndex >= quickJumpMatches.length) return;
+    const t = quickJumpMatches[quickJumpIndex];
+    const ter = G.territories[t.name];
+    const owner = ter.owner !== null ? G.players[ter.owner] : null;
+    speech.speak(`${t.name}. ${owner ? `${owner.colorName}, ${ter.troops} troops.` : 'Unclaimed.'}`);
+  }
+
+  function cycleQuickJumpMatch(direction) {
+    if (quickJumpMatches.length === 0) return;
+    const delta = direction === 'up' ? -1 : 1;
+    setQuickJumpSelection(quickJumpIndex + delta);
+  }
+
+  function confirmQuickJumpSelection() {
+    if (quickJumpMatches.length === 0) return;
+    const match = quickJumpMatches[Math.max(0, quickJumpIndex)];
+    G.currentTerritoryIdx = TERRITORIES.findIndex(x => x.name === match.name);
+    hideQuickJump();
+    updateUI();
+    announceTerritory();
   }
 
   function showTroopInput(title, desc, min, max, callback) {
@@ -718,12 +773,15 @@
     input.min = min; input.max = max; input.value = min;
     document.getElementById('troop-input-overlay').classList.remove('hidden');
     input.focus(); input.select();
-    speech.speak(`${title}. ${desc}. Min ${min}, max ${max}.`);
+    speech.speak(`${title}. ${desc}. Min ${min}, max ${max}. Type A for all.`);
   }
 
   function confirmTroopInput() {
     const input = document.getElementById('troop-input');
-    const value = parseInt(input.value), min = parseInt(input.min), max = parseInt(input.max);
+    const rawValue = input.value.trim().toLowerCase();
+    const min = parseInt(input.min);
+    const max = parseInt(input.max);
+    const value = rawValue === 'a' || rawValue === 'all' ? max : parseInt(rawValue, 10);
     if (value >= min && value <= max) {
       document.getElementById('troop-input-overlay').classList.add('hidden');
       troopInputActive = false;
@@ -895,6 +953,8 @@
     showQuickJump,
     hideQuickJump,
     updateQuickJumpMatches,
+    cycleQuickJumpMatch,
+    confirmQuickJumpSelection,
     showTroopInput,
     confirmTroopInput,
     cancelTroopInput,
@@ -1550,8 +1610,10 @@
     if (owned.length === 0 || G.setupArmies[player.id] <= 0) { nextSetupPlayer(); return; }
     const borders = owned.filter(t => getEnemyNeighbors(t.name, player.id).length > 0);
     const choice = borders.length > 0 ? borders[Math.floor(Math.random() * borders.length)] : owned[Math.floor(Math.random() * owned.length)];
-    G.territories[choice.name].troops++; G.setupArmies[player.id]--;
-    log(`${player.name} places 1 on ${choice.name} (${G.setupArmies[player.id]} left)`);
+    const amount = Math.min(3, G.setupArmies[player.id]);
+    G.territories[choice.name].troops += amount;
+    G.setupArmies[player.id] -= amount;
+    log(`${player.name} places ${amount} on ${choice.name} (${G.setupArmies[player.id]} left)`);
     setTimeout(nextSetupPlayer, G.aiDelay / 3);
   }
 

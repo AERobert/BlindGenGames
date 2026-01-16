@@ -348,8 +348,10 @@ function aiSetupReinforce(player) {
   if (owned.length === 0 || G.setupArmies[player.id] <= 0) { nextSetupPlayer(); return; }
   const borders = owned.filter(t => getEnemyNeighbors(t.name, player.id).length > 0);
   const choice = borders.length > 0 ? borders[Math.floor(Math.random() * borders.length)] : owned[Math.floor(Math.random() * owned.length)];
-  G.territories[choice.name].troops++; G.setupArmies[player.id]--;
-  log(`${player.name} places 1 on ${choice.name} (${G.setupArmies[player.id]} left)`);
+  const amount = Math.min(3, G.setupArmies[player.id]);
+  G.territories[choice.name].troops += amount;
+  G.setupArmies[player.id] -= amount;
+  log(`${player.name} places ${amount} on ${choice.name} (${G.setupArmies[player.id]} left)`);
   setTimeout(nextSetupPlayer, G.aiDelay / 3);
 }
 
