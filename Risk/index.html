@@ -257,17 +257,143 @@
       }, 1000);
     }
 
+    // ====== PERSISTENT GLOBAL PREFERENCES ======
+    const PREFS_KEY = 'riskPreferences';
+
+    function savePreferences() {
+      try {
+        const prefs = {
+          playerName: document.getElementById('player-name')?.value || '',
+          voiceName: speech.getVoiceName(),
+          speechRate: speech.getRate(),
+          aiDelay: G.aiDelay || 2000,
+          soundEnabled: sounds.isEnabled(),
+          numPlayers: document.getElementById('num-players')?.value || '3',
+          gameMode: document.getElementById('game-mode')?.value || 'random'
+        };
+        localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
+      } catch (e) {}
+    }
+
+    function loadPreferences() {
+      try {
+        const saved = localStorage.getItem(PREFS_KEY);
+        if (!saved) return null;
+        return JSON.parse(saved);
+      } catch (e) { return null; }
+    }
+
+    function applyPreferences(prefs) {
+      if (!prefs) return;
+
+      // Player name
+      const nameInput = document.getElementById('player-name');
+      if (nameInput && prefs.playerName) {
+        nameInput.value = prefs.playerName;
+      }
+
+      // Voice (applied after voices load)
+      if (prefs.voiceName) {
+        speech.setVoice(prefs.voiceName);
+      }
+
+      // Speech rate
+      if (prefs.speechRate) {
+        speech.setRate(prefs.speechRate);
+        const rateSlider = document.getElementById('speech-rate');
+        const rateValue = document.getElementById('rate-value');
+        if (rateSlider) rateSlider.value = prefs.speechRate;
+        if (rateValue) rateValue.textContent = prefs.speechRate.toFixed(1);
+      }
+
+      // AI delay
+      if (prefs.aiDelay) {
+        G.aiDelay = prefs.aiDelay;
+        const delaySeconds = prefs.aiDelay / 1000;
+        const delaySlider = document.getElementById('ai-delay');
+        const delayValue = document.getElementById('delay-value');
+        if (delaySlider) delaySlider.value = delaySeconds;
+        if (delayValue) delayValue.textContent = delaySeconds.toFixed(1).replace(/\.0$/, '');
+      }
+
+      // Sound enabled
+      if (prefs.soundEnabled !== undefined) {
+        const soundCheckbox = document.getElementById('sound-effects');
+        if (soundCheckbox) soundCheckbox.checked = prefs.soundEnabled;
+      }
+
+      // Number of players
+      if (prefs.numPlayers) {
+        const numPlayersSelect = document.getElementById('num-players');
+        if (numPlayersSelect) numPlayersSelect.value = prefs.numPlayers;
+      }
+
+      // Game mode
+      if (prefs.gameMode) {
+        const gameModeSelect = document.getElementById('game-mode');
+        if (gameModeSelect) gameModeSelect.value = prefs.gameMode;
+      }
+    }
+
     // Initialize
     let speechReady = speech.init();
     const speechWarning = document.getElementById('speech-warning');
     const playerNameInput = document.getElementById('player-name');
+
+    // Load saved preferences first
+    const savedPrefs = loadPreferences();
+    if (savedPrefs) {
+      applyPreferences(savedPrefs);
+    }
+
+    // Set generated name only if no saved name
     if (playerNameInput) {
       const generatedName = gameModule.generateCountryName();
-      if (!playerNameInput.value || playerNameInput.value.trim().toLowerCase() === 'commander') {
+      if (!savedPrefs?.playerName && (!playerNameInput.value || playerNameInput.value.trim().toLowerCase() === 'commander')) {
         playerNameInput.value = generatedName;
       }
       playerNameInput.dataset.generatedName = generatedName;
     }
+
+    // Re-apply voice after voices finish loading (Chrome async issue)
+    setTimeout(() => {
+      if (savedPrefs?.voiceName) speech.setVoice(savedPrefs.voiceName);
+    }, 600);
+    setTimeout(() => {
+      if (savedPrefs?.voiceName) speech.setVoice(savedPrefs.voiceName);
+    }, 1500);
+
+    // Save preferences when setup screen settings change
+    document.getElementById('player-name')?.addEventListener('input', savePreferences);
+    document.getElementById('voice-select')?.addEventListener('change', () => {
+      speech.updateVoiceFromUI('voice-select');
+      savePreferences();
+    });
+    document.getElementById('speech-rate')?.addEventListener('input', (e) => {
+      speech.setRate(parseFloat(e.target.value));
+      savePreferences();
+    });
+    document.getElementById('ai-delay')?.addEventListener('input', (e) => {
+      G.aiDelay = parseFloat(e.target.value) * 1000;
+      savePreferences();
+    });
+    document.getElementById('sound-effects')?.addEventListener('change', savePreferences);
+    document.getElementById('num-players')?.addEventListener('change', savePreferences);
+    document.getElementById('game-mode')?.addEventListener('change', savePreferences);
+
+    // Save preferences when in-game settings change
+    document.getElementById('game-voice-select')?.addEventListener('change', () => {
+      speech.updateVoiceFromUI('game-voice-select');
+      savePreferences();
+    });
+    document.getElementById('game-speech-rate')?.addEventListener('input', (e) => {
+      speech.setRate(parseFloat(e.target.value));
+      savePreferences();
+    });
+    document.getElementById('game-ai-delay')?.addEventListener('input', (e) => {
+      G.aiDelay = parseFloat(e.target.value) * 1000;
+      savePreferences();
+    });
     function setSpeechControlsEnabled(enabled) {
       for (const id of ['voice-select', 'speech-rate', 'game-voice-select', 'game-speech-rate']) {
         const control = document.getElementById(id);
@@ -382,6 +508,7 @@
       G.aiDelay = delaySeconds * 1000;
       const display = document.getElementById('game-delay-value');
       if (display) display.textContent = delaySeconds.toFixed(1).replace(/\.0$/, '');
+      savePreferences();
     }
 
     // Navigation
@@ -389,10 +516,15 @@
       const t = currentTerritory();
       if (!t) return;
       const target = t.directions[direction];
-      if (target && target !== 'ocean') {
+      // Check if it's a valid territory (not ocean or land)
+      if (target && target !== 'ocean' && target !== 'land') {
         const idx = TERRITORIES.findIndex(x => x.name === target);
         if (idx >= 0) { G.currentTerritoryIdx = idx; sounds.play('move'); ui.updateUI(); ui.announceTerritory(); }
-      } else { sounds.play('error'); speech.speak('Ocean.'); }
+      } else {
+        sounds.play('error');
+        // Announce "Land" or "Ocean" based on the marker
+        speech.speak(target === 'land' ? 'Land.' : 'Ocean.');
+      }
     }
 
     // Game actions

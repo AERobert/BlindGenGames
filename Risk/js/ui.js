@@ -74,13 +74,20 @@ function updateCompass(territory) {
     const btn = document.getElementById(`nav-${dir}`);
     if (!btn) return;
     const target = territory.directions[dir];
-    if (target && target !== 'ocean') {
+    // Check if it's a valid territory (not ocean/land)
+    if (target && target !== 'ocean' && target !== 'land') {
       const targetTer = G.territories[target];
       const owner = targetTer?.owner !== null ? G.players[targetTer.owner] : null;
       btn.innerHTML = `<span>${keys[i].toUpperCase()}</span>${target}`;
       btn.disabled = false;
       btn.style.borderColor = owner ? owner.color : '#666';
-    } else { btn.innerHTML = `<span>${keys[i].toUpperCase()}</span>Ocean`; btn.disabled = true; btn.style.borderColor = '#333'; }
+    } else {
+      // Display "Ocean" or "Land" based on the marker
+      const label = target === 'land' ? 'Land' : 'Ocean';
+      btn.innerHTML = `<span>${keys[i].toUpperCase()}</span>${label}`;
+      btn.disabled = true;
+      btn.style.borderColor = '#333';
+    }
   });
 }
 
@@ -315,7 +322,8 @@ export function announceTerritory() {
   ];
   for (const [dir, label] of directionLabels) {
     const target = t.directions[dir];
-    if (target && target !== 'ocean') dirs.push(`${target} to the ${label}`);
+    // Only announce actual territories, not ocean/land
+    if (target && target !== 'ocean' && target !== 'land') dirs.push(`${target} to the ${label}`);
   }
   if (dirs.length > 0) ann += ` ${dirs.join(', ')}.`;
   speech.speak(ann);

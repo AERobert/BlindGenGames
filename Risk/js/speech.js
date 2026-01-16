@@ -1,5 +1,6 @@
 // speech.js - Text-to-speech with robust voice handling
 // FIXES: Voice selected by NAME not index, English prioritized, recovery from failures
+// CHROME FIX: Warm-up utterance, delay after cancel, periodic health checks
 
 let synth = null;
 let voices = [];
@@ -9,6 +10,8 @@ let enabled = true;
 let lastText = '';
 let initialized = false;
 let supported = true;
+let warmedUp = false;  // Chrome requires warm-up utterance
+let pendingSpeak = null;  // Queue for speech after cancel delay
 
 // Initialize
 export function init() {
@@ -20,17 +23,32 @@ export function init() {
   synth = window.speechSynthesis;
   loadVoices();
   if (synth.onvoiceschanged !== undefined) synth.onvoiceschanged = loadVoices;
+  // Chrome needs multiple attempts to load voices
   setTimeout(loadVoices, 100);
   setTimeout(loadVoices, 500);
-  setInterval(checkHealth, 5000);
+  setTimeout(loadVoices, 1000);
+  setTimeout(loadVoices, 2000);
+  setInterval(checkHealth, 3000);  // More frequent health checks for Chrome
   if (!initialized) {
-    const resume = () => {
+    // Chrome warm-up: first user interaction unlocks speech
+    const warmUp = () => {
+      if (!warmedUp && synth) {
+        warmedUp = true;
+        // Cancel any stuck state
+        try { synth.cancel(); } catch (e) {}
+        // Chrome sometimes needs resume after cancel
+        if (synth.paused) synth.resume();
+        // Speak empty utterance to "prime" the engine (Chrome fix)
+        const primer = new SpeechSynthesisUtterance('');
+        primer.volume = 0;
+        try { synth.speak(primer); } catch (e) {}
+      }
       if (synth?.paused) synth.resume();
     };
-    document.addEventListener('click', resume);
-    document.addEventListener('keydown', resume);
-    document.addEventListener('touchstart', resume);
-    document.addEventListener('visibilitychange', () => { if (!document.hidden) resume(); });
+    document.addEventListener('click', warmUp);
+    document.addEventListener('keydown', warmUp);
+    document.addEventListener('touchstart', warmUp);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) warmUp(); });
     initialized = true;
   }
   return true;
@@ -82,40 +100,79 @@ function getVoice(name) {
   return voices.find(v => v.name === name) || voices[0] || null;
 }
 
-// Check if stuck
+// Check if stuck - Chrome often gets paused/stuck
 function checkHealth() {
-  if (synth?.paused) synth.resume();
+  if (!synth) return;
+  // Resume if paused
+  if (synth.paused) {
+    try { synth.resume(); } catch (e) {}
+  }
+  // Chrome bug: speaking can be true but nothing actually playing
+  // If we have pending speech and synth appears stuck, kick it
+  if (synth.speaking && !synth.pending && !synth.paused) {
+    // Seems fine
+  }
 }
 
-// Speak text
-export function speak(text, interrupt = true) {
-  if (!enabled || !supported || !text) return;
-  lastText = text;
-  
-  // Update ARIA live region
-  const region = document.getElementById('live-region');
-  if (region) { region.textContent = ''; setTimeout(() => { region.textContent = text; }, 50); }
-  
-  if (!synth && window.speechSynthesis) synth = window.speechSynthesis;
+// Internal speak function - called after any cancel delay
+function doSpeak(text) {
   if (!synth) return;
-  if (interrupt) try { synth.cancel(); } catch (e) {}
-  
+
   const utterance = new SpeechSynthesisUtterance(text);
   const voice = getVoice(voiceName);
   if (voice) utterance.voice = voice;
   utterance.rate = rate;
   utterance.pitch = 1;
   utterance.volume = 1;
-  
+
   utterance.onerror = (e) => {
     if (e.error === 'canceled' || e.error === 'interrupted') return;
-    setTimeout(() => { synth.cancel(); loadVoices(); }, 100);
+    // Chrome recovery: reload voices and try to resume
+    setTimeout(() => {
+      try { synth.cancel(); } catch (e) {}
+      loadVoices();
+      if (synth.paused) synth.resume();
+    }, 100);
   };
-  
+
   try {
+    // Chrome: ensure not paused before speaking
+    if (synth.paused) synth.resume();
     synth.speak(utterance);
+    // Chrome: double-check resume after speak
     if (synth.paused) synth.resume();
   } catch (e) {}
+}
+
+// Speak text
+export function speak(text, interrupt = true) {
+  if (!enabled || !supported || !text) return;
+  lastText = text;
+
+  // Update ARIA live region
+  const region = document.getElementById('live-region');
+  if (region) { region.textContent = ''; setTimeout(() => { region.textContent = text; }, 50); }
+
+  if (!synth && window.speechSynthesis) synth = window.speechSynthesis;
+  if (!synth) return;
+
+  // Clear any pending speak
+  if (pendingSpeak) {
+    clearTimeout(pendingSpeak);
+    pendingSpeak = null;
+  }
+
+  if (interrupt) {
+    try { synth.cancel(); } catch (e) {}
+    // CHROME FIX: Must delay after cancel() before speak() or utterance won't play
+    // This is the main Chrome bug - cancel + immediate speak = silence
+    pendingSpeak = setTimeout(() => {
+      pendingSpeak = null;
+      doSpeak(text);
+    }, 50);
+  } else {
+    doSpeak(text);
+  }
 }
 
 // Repeat last
