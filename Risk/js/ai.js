@@ -497,33 +497,174 @@ export const STRATEGIES = {
   emperor: {
     name: "Emperor",
     placeArmies(game, player, armies) {
+      const territories = game.getPlayerTerritories(player.id);
       const target = findContinentTarget(game, player.id);
-      if (target) return STRATEGIES.continental.placeArmies(game, player, armies);
-      return STRATEGIES.opportunist.placeArmies(game, player, armies);
+
+      // Count territories for each player to find elimination targets
+      const playerCounts = {};
+      for (const p of game.players) {
+        if (!p.eliminated && p.id !== player.id) {
+          playerCounts[p.id] = game.getPlayerTerritories(p.id).length;
+        }
+      }
+
+      // Score each territory for army placement
+      const scored = territories.map(t => {
+        const tData = game.allTerritories.find(x => x.name === t.name);
+        const enemies = game.getEnemyNeighbors(t.name, player.id);
+        let score = 0;
+
+        // Bonus for continental targets - high priority
+        if (target && tData) {
+          const continentHits = target.missing.filter(m => tData.borders.includes(m.name)).length;
+          score += continentHits * 30; // Strong bonus for continental completion
+        }
+
+        // Bonus for being adjacent to weak players
+        for (const enemy of enemies) {
+          const ownerCount = playerCounts[enemy.owner] || 99;
+          if (ownerCount <= 5) {
+            // Higher bonus for weaker players (closer to elimination)
+            score += Math.max(0, 25 - (ownerCount * 4));
+          }
+        }
+
+        // Bonus for favorable attack opportunities (opportunist logic)
+        const myTroops = game.territories[t.name].troops + armies;
+        for (const enemy of enemies) {
+          const ratio = myTroops / (enemy.troops + 1);
+          if (ratio > 2) score += 10; // Good attack opportunity
+          if (ratio > 3) score += 10; // Great attack opportunity
+        }
+
+        // Small bonus for border territories in general
+        if (enemies.length > 0) score += 5;
+
+        return { territory: t, score };
+      });
+
+      // Sort by score and place armies on highest scored territory
+      scored.sort((a, b) => b.score - a.score);
+
+      if (scored.length > 0 && scored[0].score > 0) {
+        return [{ territory: scored[0].territory.name, amount: armies }];
+      }
+
+      // Fallback to aggressive placement on territory adjacent to weakest enemy
+      return STRATEGIES.aggressive.placeArmies(game, player, armies);
     },
     attack(game, player) {
-      // Emperor: combines aggressive expansion with player elimination
-      const attacks = [], counts = {};
-      for (const p of game.players) if (!p.eliminated) counts[p.id] = game.getPlayerTerritories(p.id).length;
+      // Emperor: masterfully combines continental control, player elimination, and opportunism
+      const attacks = [];
+      const target = findContinentTarget(game, player.id);
 
-      for (const t of game.getPlayerTerritories(player.id).sort((a, b) => game.territories[b.name].troops - game.territories[a.name].troops)) {
+      // Count territories for each player
+      const playerCounts = {};
+      for (const p of game.players) {
+        if (!p.eliminated) {
+          playerCounts[p.id] = game.getPlayerTerritories(p.id).length;
+        }
+      }
+
+      // Build set of continental targets for quick lookup
+      const continentTargets = new Set();
+      if (target) {
+        for (const m of target.missing) {
+          continentTargets.add(m.name);
+        }
+      }
+
+      for (const t of game.getPlayerTerritories(player.id).sort((a, b) =>
+        game.territories[b.name].troops - game.territories[a.name].troops)) {
         const myTroops = game.territories[t.name].troops;
         if (myTroops <= 1) continue;
+
         for (const e of game.getEnemyNeighbors(t.name, player.id)) {
           const winProb = getWinProbability(myTroops, e.troops);
-          // Emperor: attacks with 40% win chance, prioritizes weak players
-          if (winProb >= WIN_THRESHOLDS.emperor) {
-            const priority = (counts[e.owner] || 99) <= 3 ? 100 - (counts[e.owner] || 99) : 0;
+
+          // Emperor uses lower threshold (35%) - aggressive but calculated
+          if (winProb >= 0.35) {
+            let priority = 0;
+
+            // HIGHEST: Continental completion attacks (especially last territory)
+            if (continentTargets.has(e.name)) {
+              const territoriesRemaining = target.missing.length;
+              // Bonus scales with how close we are to completion
+              priority += 50 + (30 / territoriesRemaining);
+              // Extra bonus for last territory in continent
+              if (territoriesRemaining === 1) priority += 50;
+            }
+
+            // HIGH: Elimination priority (more generous threshold than eliminator)
+            const ownerCount = playerCounts[e.owner] || 99;
+            if (ownerCount <= 5) {
+              // Huge bonus for potential elimination (cards!)
+              priority += 40 + Math.max(0, (6 - ownerCount) * 15);
+              // Extra bonus if this is their last territory
+              if (ownerCount === 1) priority += 100;
+            }
+
+            // MEDIUM: Win probability bonus - favor high-probability attacks
+            priority += winProb * 25;
+
+            // SMALL: Bonus for attacking weak territories (easy wins for cards)
+            if (e.troops <= 2 && winProb >= 0.6) {
+              priority += 15; // Easy card acquisition
+            }
+
             attacks.push({ from: t.name, to: e.name, priority, winProb, maxAttacks: 50 });
           }
         }
       }
-      // Sort by priority (weak players first), then by win probability - no artificial limit
-      return attacks.sort((a, b) => (b.priority || 0) - (a.priority || 0) || (b.winProb || 0) - (a.winProb || 0));
+
+      // Sort by composite priority score
+      return attacks.sort((a, b) => b.priority - a.priority || b.winProb - a.winProb);
     },
     fortify(game, player) {
-      // Emperor accepts higher vulnerability (0.55) - aggressive expansion
-      return smartFortify(game, player, 0.55);
+      const territories = game.getPlayerTerritories(player.id);
+      const target = findContinentTarget(game, player.id);
+
+      // If we have a continent target, try to fortify toward it
+      if (target) {
+        // Find our territories adjacent to missing continent territories
+        const adjacentToTarget = territories.filter(t => {
+          const tData = game.allTerritories.find(x => x.name === t.name);
+          return tData && target.missing.some(m => tData.borders.includes(m.name));
+        });
+
+        if (adjacentToTarget.length > 0) {
+          // Find the best source of troops
+          const potentialSources = territories
+            .filter(t => {
+              const troops = game.territories[t.name].troops;
+              const isInterior = game.getEnemyNeighbors(t.name, player.id).length === 0;
+              return troops > 1 && (isInterior || troops > 3);
+            })
+            .sort((a, b) => {
+              const aInterior = game.getEnemyNeighbors(a.name, player.id).length === 0;
+              const bInterior = game.getEnemyNeighbors(b.name, player.id).length === 0;
+              if (aInterior !== bInterior) return aInterior ? -1 : 1;
+              return game.territories[b.name].troops - game.territories[a.name].troops;
+            });
+
+          for (const source of potentialSources) {
+            for (const dest of adjacentToTarget) {
+              if (source.name === dest.name) continue;
+              if (game.areConnected(source.name, dest.name, player.id)) {
+                const sourceTroops = game.territories[source.name].troops;
+                const isInterior = game.getEnemyNeighbors(source.name, player.id).length === 0;
+                const moveAmount = isInterior ? sourceTroops - 1 : Math.floor(sourceTroops / 2);
+                if (moveAmount > 0) {
+                  return { from: source.name, to: dest.name, amount: moveAmount };
+                }
+              }
+            }
+          }
+        }
+      }
+
+      // Fallback to smart fortify with higher acceptable vulnerability
+      return smartFortify(game, player, 0.60);
     }
   }
 };
