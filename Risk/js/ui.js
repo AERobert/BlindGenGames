@@ -256,7 +256,12 @@ export function showDiceResult(result, callback) {
   document.getElementById('dice-result').innerHTML = html;
   document.getElementById('dice-outcome').textContent = `Attacker: -${result.attackerLosses} | Defender: -${result.defenderLosses}`;
   document.getElementById('dice-overlay').classList.remove('hidden');
-  speech.speak(`Attack: ${result.attackRolls.join(', ')}. Defense: ${result.defendRolls.join(', ')}.`);
+  let outcomeText = `Attack: ${result.attackRolls.join(', ')}. Defense: ${result.defendRolls.join(', ')}. `;
+  outcomeText += `Attacker loses ${result.attackerLosses}. Defender loses ${result.defenderLosses}.`;
+  if (result.conquered) {
+    outcomeText += ' Territory conquered!';
+  }
+  speech.speak(outcomeText);
 }
 
 export function closeDiceOverlay() {

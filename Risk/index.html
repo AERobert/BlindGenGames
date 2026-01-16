@@ -407,7 +407,7 @@
       G.setupArmies[player.id]--;
       sounds.play('place');
       log(`${player.name} claims ${t.name}`);
-      speech.speak(`Claimed ${t.name}.`);
+      speech.speak(`${player.name} claims ${t.name}.`);
       G.currentPlayer = (G.currentPlayer + 1) % G.players.length;
       if (TERRITORIES.filter(t => G.territories[t.name].owner === null).length === 0) gameModule.startSetupReinforce();
       else { ui.updateUI(); if (!currentPlayer().isHuman) setTimeout(gameModule.aiTurn, G.aiDelay); }
@@ -417,7 +417,7 @@
       const player = currentPlayer();
       if (!player.isHuman) return;
       const t = currentTerritory();
-      if (G.territories[t.name].owner !== player.id) { sounds.play('error'); speech.speak('Select your territory.'); return; }
+      if (G.territories[t.name].owner !== player.id) { sounds.play('error'); speech.speak(`Not ${player.name}'s territory.`); return; }
       if (G.phase === 'setup-reinforce') {
         const max = G.setupArmies[player.id];
         if (max <= 0) { sounds.play('error'); speech.speak('No armies.'); return; }
@@ -426,7 +426,7 @@
           G.territories[t.name].troops += amt;
           G.setupArmies[player.id] -= amt;
           sounds.play('place');
-          speech.speak(`Placed ${amt} on ${t.name}. ${G.setupArmies[player.id]} remaining.`);
+          speech.speak(`${player.name} places ${amt} on ${t.name}. ${G.setupArmies[player.id]} remaining.`);
           gameModule.nextSetupPlayer();
         });
       } else if (G.phase === 'reinforce') {
@@ -436,11 +436,12 @@
           G.armiesToPlace -= amt;
           G.stats.troopsPlaced[player.id] += amt;
           sounds.play('place');
-          speech.speak(`${t.name}: ${G.territories[t.name].troops}. ${G.armiesToPlace} left.`);
+          speech.speak(`${player.name} places ${amt} on ${t.name}. ${t.name}: ${G.territories[t.name].troops}. ${G.armiesToPlace} left.`);
           ui.updateUI();
         });
       }
     }
+
 
     function endReinforce() {
       if (G.phase !== 'reinforce') return;
@@ -456,7 +457,7 @@
       const bonus = gameModule.executeCardTrade(player, set);
       G.armiesToPlace += bonus;
       sounds.play('card');
-      speech.speak(`Traded for ${bonus}. Total: ${G.armiesToPlace}.`);
+      speech.speak(`${player.name} trades cards for ${bonus}. Total: ${G.armiesToPlace}.`);
       ui.updateUI();
     }
 
@@ -464,12 +465,12 @@
       if (G.phase !== 'attack') return;
       const player = currentPlayer();
       const t = currentTerritory();
-      if (G.territories[t.name].owner !== player.id) { sounds.play('error'); speech.speak('Select your territory.'); return; }
+      if (G.territories[t.name].owner !== player.id) { sounds.play('error'); speech.speak(`Not ${player.name}'s territory.`); return; }
       if (G.territories[t.name].troops <= 1) { sounds.play('error'); speech.speak('Need more troops.'); return; }
       if (getEnemyNeighbors(t.name, player.id).length === 0) { sounds.play('error'); speech.speak('No adjacent enemies.'); return; }
       G.attackFrom = t.name;
       sounds.play('select');
-      speech.speak(`Attacking from ${t.name}. Navigate to enemy, press Enter.`);
+      speech.speak(`${player.name} attacking from ${t.name}. Navigate to enemy, press Enter.`);
       ui.updateUI();
     }
 
@@ -479,13 +480,14 @@
       const t = currentTerritory();
       const fromData = findTerritory(G.attackFrom);
       if (!fromData.borders.includes(t.name)) { sounds.play('error'); speech.speak('Not adjacent.'); return; }
-      if (G.territories[t.name].owner === player.id) { sounds.play('error'); speech.speak('Cannot attack yourself.'); return; }
+      if (G.territories[t.name].owner === player.id) { sounds.play('error'); speech.speak(`${player.name} cannot attack own territory.`); return; }
       if (G.territories[t.name].owner === null) { sounds.play('error'); speech.speak('Unclaimed.'); return; }
 
       const from = G.territories[G.attackFrom], to = G.territories[t.name];
       const defender = G.players[to.owner];
       G.stats.attacks[player.id]++;
       log(`${player.name} attacks ${t.name} from ${G.attackFrom}`);
+      speech.speak(`${player.name} attacks ${t.name} from ${G.attackFrom}.`);
       sounds.play('attack');
 
       const result = gameModule.resolveBattle(G.attackFrom, t.name);
@@ -503,7 +505,7 @@
           to.owner = player.id;
           sounds.play('victory');
           log(`${player.name} conquers ${t.name}!`, true);
-          speech.speak(`Victory! Conquered ${t.name}!`);
+          speech.speak(`${player.name} conquers ${t.name}!`);
           gameModule.checkContinentControl();
 
           const defT = Object.values(G.territories).filter(x => x.owner === oldOwner);
@@ -520,8 +522,16 @@
           if (winner !== null) { gameModule.endGame(winner); return; }
 
           const minMove = Math.min(3, from.troops - 1), maxMove = from.troops - 1;
-          if (minMove === maxMove) { from.troops -= minMove; to.troops = minMove; G.attackFrom = null; ui.updateUI(); }
-          else ui.showTroopInput('Move Troops', `How many to ${t.name}?`, minMove, maxMove, amt => { from.troops -= amt; to.troops = amt; G.attackFrom = null; ui.updateUI(); });
+          if (minMove === maxMove) {
+            from.troops -= minMove; to.troops = minMove;
+            speech.speak(`${player.name} moves ${minMove} troops to ${t.name}.`);
+            G.attackFrom = null; ui.updateUI();
+          }
+          else ui.showTroopInput('Move Troops', `How many to ${t.name}?`, minMove, maxMove, amt => {
+            from.troops -= amt; to.troops = amt;
+            speech.speak(`${player.name} moves ${amt} troops to ${t.name}.`);
+            G.attackFrom = null; ui.updateUI();
+          });
         } else {
           if (from.troops <= 1) { speech.speak('Attack exhausted.'); G.attackFrom = null; }
           ui.updateUI();
@@ -536,11 +546,11 @@
       if (G.phase !== 'fortify') return;
       const player = currentPlayer();
       const t = currentTerritory();
-      if (G.territories[t.name].owner !== player.id) { sounds.play('error'); speech.speak('Select your territory.'); return; }
+      if (G.territories[t.name].owner !== player.id) { sounds.play('error'); speech.speak(`Not ${player.name}'s territory.`); return; }
       if (G.territories[t.name].troops <= 1) { sounds.play('error'); speech.speak('Need more troops.'); return; }
       G.fortifyFrom = t.name;
       sounds.play('select');
-      speech.speak(`Moving from ${t.name}. Navigate to destination, press Enter.`);
+      speech.speak(`${player.name} moving from ${t.name}. Navigate to destination, press Enter.`);
       ui.updateUI();
     }
 
@@ -548,15 +558,17 @@
       if (G.phase !== 'fortify' || !G.fortifyFrom) { speech.speak('Select source first.'); return; }
       const player = currentPlayer();
       const t = currentTerritory();
-      if (G.territories[t.name].owner !== player.id) { sounds.play('error'); speech.speak('Select your territory.'); return; }
+      if (G.territories[t.name].owner !== player.id) { sounds.play('error'); speech.speak(`Not ${player.name}'s territory.`); return; }
       if (t.name === G.fortifyFrom) { sounds.play('error'); speech.speak('Select different territory.'); return; }
       if (!areConnected(G.fortifyFrom, t.name, player.id)) { sounds.play('error'); speech.speak('Not connected.'); return; }
       const from = G.territories[G.fortifyFrom], maxMove = from.troops - 1;
+      const fortifySource = G.fortifyFrom;
       ui.showTroopInput('Move Troops', `How many to ${t.name}?`, 1, maxMove, amt => {
         from.troops -= amt;
         G.territories[t.name].troops += amt;
-        log(`${player.name} moves ${amt} from ${G.fortifyFrom} to ${t.name}`);
-        speech.speak(`Moved ${amt}.`);
+        log(`${player.name} moves ${amt} from ${fortifySource} to ${t.name}`);
+        sounds.play('fortify');
+        speech.speak(`${player.name} moves ${amt} from ${fortifySource} to ${t.name}.`);
         G.fortifyFrom = null;
         gameModule.nextPlayer();
       });

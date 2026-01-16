@@ -152,7 +152,7 @@ export function nextSetupPlayer() {
   G.currentPlayer = next;
   updateUI();
   if (!currentPlayer().isHuman) setTimeout(aiTurn, G.aiDelay / 2);
-  else speech.speak(`Your turn. ${G.setupArmies[currentPlayer().id]} armies to place.`);
+  else speech.speak(`${currentPlayer().name}'s turn. ${G.setupArmies[currentPlayer().id]} armies to place.`);
 }
 
 export function startMainGame() {
@@ -262,6 +262,7 @@ function awardCardIfEarned(playerId) {
   G.players[playerId].cards.push(card);
   sounds.play('card');
   log(`${G.players[playerId].name} earned a card`);
+  speech.speak(`${G.players[playerId].name} earned a card.`);
 }
 
 // ============== VICTORY ==============
@@ -292,6 +293,7 @@ export function checkContinentControl() {
       } else if (!controls && had) {
         G.stats.continents[player.id] = G.stats.continents[player.id].filter(x => x !== c);
         log(`${player.name} lost ${c}`);
+        speech.speak(`${player.name} lost control of ${c}.`);
       }
     }
   }
@@ -336,6 +338,7 @@ function aiClaim(player) {
   if (!choice) choice = unclaimed[Math.floor(Math.random() * unclaimed.length)];
   G.territories[choice.name].owner = player.id; G.territories[choice.name].troops = 1; G.setupArmies[player.id]--;
   log(`${player.name} claims ${choice.name}`);
+  speech.speak(`${player.name} claims ${choice.name}.`);
   setTimeout(() => {
     G.currentPlayer = (G.currentPlayer + 1) % G.players.length;
     if (TERRITORIES.filter(t => G.territories[t.name].owner === null).length === 0) startSetupReinforce();
@@ -352,17 +355,32 @@ function aiSetupReinforce(player) {
   G.territories[choice.name].troops += amount;
   G.setupArmies[player.id] -= amount;
   log(`${player.name} places ${amount} on ${choice.name} (${G.setupArmies[player.id]} left)`);
+  speech.speak(`${player.name} places ${amount} on ${choice.name}. ${G.setupArmies[player.id]} remaining.`);
   setTimeout(nextSetupPlayer, G.aiDelay / 3);
 }
 
 function aiReinforce(player, strategy) {
   if (player.cards.length >= 3) {
     const set = findValidCardSet(player.cards);
-    if (set && (player.cards.length >= 5 || getTradeValue() >= 8)) { G.armiesToPlace += executeCardTrade(player, set); }
+    if (set && (player.cards.length >= 5 || getTradeValue() >= 8)) {
+      const bonus = executeCardTrade(player, set);
+      G.armiesToPlace += bonus;
+      speech.speak(`${player.name} trades cards for ${bonus} armies.`);
+    }
   }
   const gameInterface = createGameInterface();
   const placements = strategy.placeArmies(gameInterface, player, G.armiesToPlace);
-  for (const p of placements) { if (G.territories[p.territory]?.owner === player.id) { G.territories[p.territory].troops += p.amount; log(`${player.name} places ${p.amount} on ${p.territory}`); } }
+  const placementSummary = [];
+  for (const p of placements) {
+    if (G.territories[p.territory]?.owner === player.id) {
+      G.territories[p.territory].troops += p.amount;
+      log(`${player.name} places ${p.amount} on ${p.territory}`);
+      placementSummary.push(`${p.amount} on ${p.territory}`);
+    }
+  }
+  if (placementSummary.length > 0) {
+    speech.speak(`${player.name} places ${placementSummary.join(', ')}.`);
+  }
   G.armiesToPlace = 0;
   updateUI();
   setTimeout(startAttackPhase, G.aiDelay);
@@ -381,6 +399,7 @@ function executeAiAttacks(player, attacks, index) {
   if (from.owner !== player.id || to.owner === player.id || from.troops <= 1) { executeAiAttacks(player, attacks, index + 1); return; }
   const defender = G.players[to.owner];
   log(`${player.name} attacks ${attack.to} from ${attack.from}`);
+  speech.speak(`${player.name} attacks ${attack.to} from ${attack.from}.`);
   G.stats.attacks[player.id]++;
   let attacksRemaining = attack.maxAttacks || 10;
   const doAttack = () => {
@@ -398,12 +417,19 @@ function executeAiAttacks(player, attacks, index) {
       const toMove = Math.min(from.troops - 1, 3); from.troops -= toMove; to.troops = toMove;
       log(`${player.name} conquers ${attack.to}!`, true);
       sounds.play('victory');
+      speech.speak(`${player.name} conquers ${attack.to}! ${toMove} troops moved in.`);
       checkContinentControl();
       const defT = Object.values(G.territories).filter(t => t.owner === oldOwner);
       if (defT.length === 0 && oldOwner !== null) {
         const defPlayer = G.players[oldOwner];
         defPlayer.eliminated = true; G.stats.eliminated[oldOwner] = G.turnNumber;
-        if (defPlayer.cards.length > 0) { player.cards.push(...defPlayer.cards); defPlayer.cards = []; }
+        if (defPlayer.cards.length > 0) {
+          player.cards.push(...defPlayer.cards);
+          defPlayer.cards = [];
+          speech.speak(`${defPlayer.name} eliminated! ${player.name} captures cards.`);
+        } else {
+          speech.speak(`${defPlayer.name} eliminated!`);
+        }
         sounds.play('elimination'); log(`${defPlayer.name} eliminated`, true);
       }
       if (checkVictory() !== null) { endGame(checkVictory()); return; }
@@ -422,6 +448,8 @@ function aiFortify(player, strategy) {
     if (from?.owner === player.id && to?.owner === player.id && from.troops > fortify.amount) {
       from.troops -= fortify.amount; to.troops += fortify.amount;
       log(`${player.name} moves ${fortify.amount} from ${fortify.from} to ${fortify.to}`);
+      sounds.play('fortify');
+      speech.speak(`${player.name} moves ${fortify.amount} from ${fortify.from} to ${fortify.to}.`);
     }
   }
   updateUI();
