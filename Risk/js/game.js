@@ -71,30 +71,92 @@
   }
 
   // Initialize players
-  function initPlayers(name, count, spectator = false) {
+  // strategySelections: array of strategy keys (e.g., ['aggressive', 'defensive', ...]) or null for random
+  function initPlayers(name, count, spectator = false, strategySelections = null) {
     G.players = [];
     G.spectatorMode = spectator;
     const usedNames = new Set();
     if (name) usedNames.add(name);
-    const strategyPool = shuffle([...STRATEGY_NAMES]);
+
+    // Determine strategies for AI players
+    let aiStrategies;
+    if (strategySelections && strategySelections.length > 0) {
+      // Use provided strategies, shuffled
+      aiStrategies = shuffle([...strategySelections]);
+    } else {
+      // Use random strategies from the pool
+      const strategyPool = shuffle([...STRATEGY_NAMES]);
+      const aiCount = spectator ? count : count - 1;
+      aiStrategies = [];
+      for (let i = 0; i < aiCount; i++) {
+        aiStrategies.push(strategyPool[i % strategyPool.length]);
+      }
+    }
+
+    // Build list of all players (will be shuffled later in non-spectator mode)
+    const playerList = [];
+    let aiIndex = 0;
+
     if (spectator) {
+      // All players are AI
       for (let i = 0; i < count; i++) {
-        const strategy = strategyPool[i % strategyPool.length];
+        const strategy = aiStrategies[aiIndex++];
         const countryName = generateCountryName(usedNames);
         usedNames.add(countryName);
-        G.players.push({ id: i, name: countryName, color: PLAYER_COLORS[i].hex, colorName: PLAYER_COLORS[i].name, isHuman: false, strategy, strategyName: STRATEGIES[strategy].name, cards: [], eliminated: false });
+        playerList.push({
+          name: countryName,
+          isHuman: false,
+          strategy,
+          strategyName: STRATEGIES[strategy].name,
+          cards: [],
+          eliminated: false
+        });
       }
       G.humanPlayerId = -1;
     } else {
-      G.players.push({ id: 0, name, color: PLAYER_COLORS[0].hex, colorName: PLAYER_COLORS[0].name, isHuman: true, cards: [], eliminated: false });
-      for (let i = 1; i < count; i++) {
-        const strategy = strategyPool[(i - 1) % strategyPool.length];
+      // One human player + AI players
+      // First add the human
+      playerList.push({
+        name,
+        isHuman: true,
+        strategy: null,
+        strategyName: null,
+        cards: [],
+        eliminated: false
+      });
+
+      // Then add AI players
+      for (let i = 0; i < count - 1; i++) {
+        const strategy = aiStrategies[aiIndex++];
         const countryName = generateCountryName(usedNames);
         usedNames.add(countryName);
-        G.players.push({ id: i, name: countryName, color: PLAYER_COLORS[i].hex, colorName: PLAYER_COLORS[i].name, isHuman: false, strategy, strategyName: STRATEGIES[strategy].name, cards: [], eliminated: false });
+        playerList.push({
+          name: countryName,
+          isHuman: false,
+          strategy,
+          strategyName: STRATEGIES[strategy].name,
+          cards: [],
+          eliminated: false
+        });
       }
-      G.humanPlayerId = 0;
+
+      // Shuffle the player list so human isn't always player #1
+      shuffle(playerList);
     }
+
+    // Assign final IDs and colors based on shuffled positions
+    for (let i = 0; i < playerList.length; i++) {
+      const p = playerList[i];
+      p.id = i;
+      p.color = PLAYER_COLORS[i].hex;
+      p.colorName = PLAYER_COLORS[i].name;
+      G.players.push(p);
+
+      if (p.isHuman) {
+        G.humanPlayerId = i;
+      }
+    }
+
     const armies = STARTING_ARMIES[count] || 30;
     for (const p of G.players) G.setupArmies[p.id] = armies;
   }

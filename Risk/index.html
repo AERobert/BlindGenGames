@@ -37,6 +37,18 @@
       </select>
       
       <div class="setup-section">
+        <h3>AI Strategy Settings</h3>
+        <label class="checkbox-label">
+          <input type="checkbox" id="manual-strategies"> Manually select AI strategies
+        </label>
+        <div id="strategy-selection" class="hidden">
+          <p id="strategy-info" class="strategy-info">Select how many of each strategy (total must match player count)</p>
+          <div id="strategy-sliders" class="strategy-sliders"></div>
+          <p id="strategy-count-status" class="strategy-count-status">0 / 0 players assigned</p>
+        </div>
+      </div>
+
+      <div class="setup-section">
         <h3>Speech Settings</h3>
         <label for="voice-select">Voice:</label>
         <select id="voice-select"></select>
@@ -246,6 +258,146 @@
     const sounds = window.RiskSounds;
     const ui = window.RiskUI;
     const gameModule = window.RiskGame;
+    const { STRATEGIES, STRATEGY_NAMES } = window.RiskAI;
+
+    // ====== STRATEGY SELECTION UI ======
+    function buildStrategySliders() {
+      const container = document.getElementById('strategy-sliders');
+      if (!container) return;
+      container.innerHTML = '';
+
+      for (const strategyKey of STRATEGY_NAMES) {
+        const strategy = STRATEGIES[strategyKey];
+        const row = document.createElement('div');
+        row.className = 'strategy-slider-row';
+        row.innerHTML = `
+          <label for="strategy-${strategyKey}">${strategy.name}</label>
+          <input type="range" id="strategy-${strategyKey}" min="0" max="6" value="0"
+                 data-strategy="${strategyKey}" aria-label="${strategy.name} count">
+          <span class="slider-value" id="strategy-${strategyKey}-value">0</span>
+        `;
+        container.appendChild(row);
+
+        // Add event listener for this slider
+        const slider = row.querySelector('input');
+        const valueSpan = row.querySelector('.slider-value');
+        slider.addEventListener('input', () => {
+          valueSpan.textContent = slider.value;
+          updateStrategyCountStatus();
+        });
+      }
+    }
+
+    function getRequiredAICount() {
+      const numPlayers = parseInt(document.getElementById('num-players').value);
+      const gameMode = document.getElementById('game-mode').value;
+      // In spectator mode, all players are AI
+      // In normal mode, 1 player is human, rest are AI
+      return gameMode === 'spectator' ? numPlayers : numPlayers - 1;
+    }
+
+    function updateStrategyCountStatus() {
+      const statusEl = document.getElementById('strategy-count-status');
+      const infoEl = document.getElementById('strategy-info');
+      if (!statusEl) return;
+
+      const requiredAI = getRequiredAICount();
+      let totalAssigned = 0;
+
+      for (const strategyKey of STRATEGY_NAMES) {
+        const slider = document.getElementById(`strategy-${strategyKey}`);
+        if (slider) {
+          totalAssigned += parseInt(slider.value);
+        }
+      }
+
+      statusEl.textContent = `${totalAssigned} / ${requiredAI} AI players assigned`;
+
+      if (totalAssigned === requiredAI) {
+        statusEl.classList.add('valid');
+        statusEl.classList.remove('invalid');
+      } else {
+        statusEl.classList.add('invalid');
+        statusEl.classList.remove('valid');
+      }
+
+      // Update info text based on game mode
+      const gameMode = document.getElementById('game-mode').value;
+      if (gameMode === 'spectator') {
+        infoEl.textContent = `Select strategies for all ${requiredAI} AI players`;
+      } else {
+        infoEl.textContent = `Select strategies for ${requiredAI} AI opponent${requiredAI !== 1 ? 's' : ''} (you are the human player)`;
+      }
+    }
+
+    function updateSliderMaxValues() {
+      const numPlayers = parseInt(document.getElementById('num-players').value);
+      for (const strategyKey of STRATEGY_NAMES) {
+        const slider = document.getElementById(`strategy-${strategyKey}`);
+        if (slider) {
+          slider.max = numPlayers;
+          if (parseInt(slider.value) > numPlayers) {
+            slider.value = numPlayers;
+            document.getElementById(`strategy-${strategyKey}-value`).textContent = numPlayers;
+          }
+        }
+      }
+      updateStrategyCountStatus();
+    }
+
+    function getStrategySelections() {
+      const manualCheckbox = document.getElementById('manual-strategies');
+      if (!manualCheckbox || !manualCheckbox.checked) {
+        return null; // Use random strategies
+      }
+
+      const selections = [];
+      for (const strategyKey of STRATEGY_NAMES) {
+        const slider = document.getElementById(`strategy-${strategyKey}`);
+        if (slider) {
+          const count = parseInt(slider.value);
+          for (let i = 0; i < count; i++) {
+            selections.push(strategyKey);
+          }
+        }
+      }
+      return selections;
+    }
+
+    function isStrategySelectionValid() {
+      const manualCheckbox = document.getElementById('manual-strategies');
+      if (!manualCheckbox || !manualCheckbox.checked) {
+        return true; // Random is always valid
+      }
+
+      const requiredAI = getRequiredAICount();
+      const selections = getStrategySelections();
+      return selections && selections.length === requiredAI;
+    }
+
+    // Initialize strategy selection UI
+    buildStrategySliders();
+
+    // Handle manual strategies checkbox
+    document.getElementById('manual-strategies')?.addEventListener('change', (e) => {
+      const selectionDiv = document.getElementById('strategy-selection');
+      if (selectionDiv) {
+        selectionDiv.classList.toggle('hidden', !e.target.checked);
+      }
+      if (e.target.checked) {
+        updateStrategyCountStatus();
+      }
+    });
+
+    // Handle player count changes
+    document.getElementById('num-players')?.addEventListener('change', () => {
+      updateSliderMaxValues();
+    });
+
+    // Handle game mode changes
+    document.getElementById('game-mode')?.addEventListener('change', () => {
+      updateStrategyCountStatus();
+    });
 
     // Connect callbacks
     gameModule.setCallbacks(ui.updateUI, ui.showAfterActionReport, ui.showTroopInput, ui.showDiceResult);
@@ -448,6 +600,14 @@
     // Start game
     function startGame() {
       ensureSpeechReady();
+
+      // Validate strategy selection if manual is checked
+      if (!isStrategySelectionValid()) {
+        const requiredAI = getRequiredAICount();
+        speech.speak(`Please assign exactly ${requiredAI} AI strategies before starting.`);
+        return;
+      }
+
       const playerName = playerNameInput?.value.trim() || playerNameInput?.dataset.generatedName || gameModule.generateCountryName();
       const numPlayers = parseInt(document.getElementById('num-players').value);
       const gameMode = document.getElementById('game-mode').value;
@@ -473,7 +633,9 @@
       G.gameMode = gameMode;
       G.startTime = Date.now();
 
-      gameModule.initPlayers(playerName, numPlayers, gameMode === 'spectator');
+      // Get strategy selections (null means random)
+      const strategySelections = getStrategySelections();
+      gameModule.initPlayers(playerName, numPlayers, gameMode === 'spectator', strategySelections);
       initTerritories();
       initDeck();
       initStats();
@@ -496,7 +658,13 @@
       ui.updateUI();
       document.getElementById('current-territory').focus();
       const aiInfo = G.players.filter(p => !p.isHuman).map(p => `${p.colorName}: ${p.strategyName || p.strategy}`).join(', ');
-      speech.speak(`Game starting. AI: ${aiInfo}`);
+      let startAnnouncement = 'Game starting.';
+      if (G.humanPlayerId >= 0) {
+        const humanPlayer = G.players[G.humanPlayerId];
+        startAnnouncement += ` You are ${humanPlayer.colorName}, player ${G.humanPlayerId + 1} of ${numPlayers}.`;
+      }
+      startAnnouncement += ` AI: ${aiInfo}`;
+      speech.speak(startAnnouncement);
       log('Game started');
     }
 
