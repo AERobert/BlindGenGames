@@ -67,15 +67,21 @@
 
   function toggle() {
     enabled = !enabled;
-    const btn = document.getElementById('toggle-sound-btn');
-    if (btn) btn.textContent = enabled ? 'Sound Off' : 'Sound On';
+    updateSoundButton();
     return enabled;
   }
 
   function setEnabled(val) {
     enabled = val;
+    updateSoundButton();
+  }
+
+  function updateSoundButton() {
     const btn = document.getElementById('toggle-sound-btn');
-    if (btn) btn.textContent = enabled ? 'Sound Off' : 'Sound On';
+    if (btn) {
+      btn.textContent = enabled ? 'Sound: On' : 'Sound: Off';
+      btn.setAttribute('aria-pressed', enabled.toString());
+    }
   }
 
   function isEnabled() { return enabled; }

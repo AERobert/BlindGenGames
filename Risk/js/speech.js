@@ -207,10 +207,17 @@
   function toggle() {
     if (!supported) return false;
     enabled = !enabled;
-    const btn = document.getElementById('toggle-speech-btn');
-    if (btn) btn.textContent = enabled ? 'Mute' : 'Unmute';
+    updateSpeechButton();
     if (enabled) speak('Speech enabled');
     return enabled;
+  }
+
+  function updateSpeechButton() {
+    const btn = document.getElementById('toggle-speech-btn');
+    if (btn) {
+      btn.textContent = enabled ? 'Speech: On' : 'Speech: Off';
+      btn.setAttribute('aria-pressed', enabled.toString());
+    }
   }
 
   // Getters
