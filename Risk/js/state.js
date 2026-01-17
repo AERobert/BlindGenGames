@@ -25,6 +25,7 @@
     aiDelay: 2000,
     gameMode: 'manual',
     spectatorMode: false,
+    paused: false,
     stats: {}
   };
 
@@ -52,6 +53,7 @@
     G.endTime = null;
     G.gameMode = 'manual';
     G.spectatorMode = false;
+    G.paused = false;
     G.stats = {};
     gameLog.length = 0;
   }

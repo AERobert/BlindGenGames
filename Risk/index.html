@@ -48,7 +48,7 @@
       <div class="setup-section">
         <h3>Other Settings</h3>
         <label for="ai-delay">AI Delay: <span id="delay-value">2</span>s</label>
-        <input type="range" id="ai-delay" min="0.5" max="5" step="0.5" value="2" oninput="document.getElementById('delay-value').textContent=this.value">
+        <input type="range" id="ai-delay" min="0" max="5" step="0.1" value="2" oninput="document.getElementById('delay-value').textContent=parseFloat(this.value).toFixed(1)">
         <label class="checkbox-label"><input type="checkbox" id="sound-effects" checked> Sound Effects</label>
       </div>
       
@@ -65,6 +65,7 @@
         <h1 class="game-title">Risk</h1>
         <div class="header-controls">
           <span id="game-timer">0:00</span>
+          <button class="btn-small" id="pause-ai-btn" onclick="game.togglePause()">Pause (Space)</button>
           <button class="btn-small" id="toggle-speech-btn" onclick="game.toggleSpeech()">Mute</button>
           <button class="btn-small" id="toggle-sound-btn" onclick="game.toggleSound()">Sound Off</button>
           <button class="btn-small" onclick="game.saveToFile()">Save</button>
@@ -117,7 +118,7 @@
             <div class="speech-settings">
               <label>Voice: <select id="game-voice-select" onchange="speech.updateVoiceFromUI('game-voice-select')"></select></label>
               <label>Rate: <span id="game-rate-value">1.2</span> <input type="range" id="game-speech-rate" min="0.5" max="4" step="0.1" value="1.2" oninput="speech.setRate(parseFloat(this.value))"></label>
-              <label>AI Delay: <span id="game-delay-value">2</span>s <input type="range" id="game-ai-delay" min="0.5" max="5" step="0.5" value="2" oninput="game.updateAIDelayFromUI(parseFloat(this.value))"></label>
+              <label>AI Delay: <span id="game-delay-value">2</span>s <input type="range" id="game-ai-delay" min="0" max="5" step="0.1" value="2" oninput="game.updateAIDelayFromUI(parseFloat(this.value))"></label>
             </div>
           </div>
 
@@ -522,11 +523,25 @@
     }
 
     function updateAIDelayFromUI(value) {
-      const delaySeconds = Math.max(0.5, Math.min(5, value));
+      const delaySeconds = Math.max(0, Math.min(5, value));
       G.aiDelay = delaySeconds * 1000;
       const display = document.getElementById('game-delay-value');
       if (display) display.textContent = delaySeconds.toFixed(1).replace(/\.0$/, '');
       savePreferences();
+    }
+
+    function togglePause() {
+      G.paused = !G.paused;
+      const btn = document.getElementById('pause-ai-btn');
+      if (btn) btn.textContent = G.paused ? 'Resume (Space)' : 'Pause (Space)';
+      if (G.paused) {
+        speech.speak('Paused.');
+        log('Game paused');
+      } else {
+        speech.speak('Resumed.');
+        log('Game resumed');
+        gameModule.resumeAI();
+      }
     }
 
     // Navigation
@@ -836,14 +851,27 @@
       if (key === 'r') { speech.repeat(); return; }
       if (key === ' ' || key === 'enter' || key === 'k') {
         e.preventDefault();
+        // Spacebar toggles pause when it's not human's turn or in spectator mode
+        if (key === ' ' && (!currentPlayer()?.isHuman || G.spectatorMode || G.humanPlayerId === -1)) {
+          togglePause();
+          return;
+        }
         if (!currentPlayer()?.isHuman) return;
         if (G.phase === 'claim') claimTerritory();
         else if (G.phase === 'setup-reinforce' || G.phase === 'reinforce') placeArmy();
         else if (G.phase === 'attack') {
           const t = currentTerritory();
-          // If no source selected, or selecting an owned territory (to change/cancel selection), call selectAttackSource
-          if (!G.attackFrom || G.territories[t.name].owner === currentPlayer().id) {
+          if (!G.attackFrom) {
+            // No source selected yet - try to select one
             selectAttackSource();
+          } else if (G.attackFrom === t.name) {
+            // Selecting the same territory as attack source - cancel attack
+            selectAttackSource();
+          } else if (G.territories[t.name].owner === currentPlayer().id) {
+            // Player has source selected but is on their own territory (not the source)
+            // They might be trying to attack it by mistake - give clear feedback
+            sounds.play('error');
+            speech.speak('Cannot attack own territory. Navigate to enemy territory and press Enter, or press X to cancel.');
           } else {
             executeAttack();
           }
@@ -866,7 +894,7 @@
     document.getElementById('quick-jump-input')?.addEventListener('input', e => ui.updateQuickJumpMatches(e.target.value));
 
     // Expose to window
-    window.game = { startGame, resumeGame, claimTerritory, placeArmy, endReinforce, tradeCards, selectAttackSource, executeAttack, cancelAttack, endAttack, selectFortifySource, executeFortify, cancelFortify, endTurn, saveToFile, loadFromFile, downloadLog, updateAIDelayFromUI, toggleSpeech: speech.toggle, toggleSound: sounds.toggle, showHelp: ui.showHelp };
+    window.game = { startGame, resumeGame, claimTerritory, placeArmy, endReinforce, tradeCards, selectAttackSource, executeAttack, cancelAttack, endAttack, selectFortifySource, executeFortify, cancelFortify, endTurn, saveToFile, loadFromFile, downloadLog, updateAIDelayFromUI, togglePause, toggleSpeech: speech.toggle, toggleSound: sounds.toggle, showHelp: ui.showHelp };
     window.ui = ui;
   </script>
 </body>

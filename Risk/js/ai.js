@@ -204,11 +204,171 @@
     return best;
   }
 
+  /**
+   * Find opponents who are close to controlling a continent
+   * Returns array of { playerId, continent, territoriesNeeded, territories, totalTroops }
+   * sorted by threat level (fewer territories needed = higher threat)
+   * @param {object} game - Game state
+   * @param {number} excludePlayerId - Player to exclude (current AI)
+   * @returns {Array} Array of threat objects
+   */
+  function findContinentThreats(game, excludePlayerId) {
+    const threats = [];
+
+    for (const c in CONTINENTS) {
+      const continentTerritories = game.allTerritories.filter(t => t.continent === c);
+      const totalInContinent = continentTerritories.length;
+
+      // Group territories by owner
+      const ownerCounts = {};
+      for (const t of continentTerritories) {
+        const owner = game.territories[t.name].owner;
+        if (owner !== null && owner !== excludePlayerId) {
+          if (!ownerCounts[owner]) ownerCounts[owner] = { territories: [], troops: 0 };
+          ownerCounts[owner].territories.push(t.name);
+          ownerCounts[owner].troops += game.territories[t.name].troops;
+        }
+      }
+
+      // Check each opponent's progress toward controlling this continent
+      for (const playerId in ownerCounts) {
+        const owned = ownerCounts[playerId].territories;
+        const territoriesNeeded = totalInContinent - owned.length;
+
+        // Only consider threats if they own at least half the continent or need ≤ 2 territories
+        // Small continents (Australia, South America) are especially dangerous
+        const isSmallContinent = totalInContinent <= 4;
+        const threatThreshold = isSmallContinent ? 1 : Math.floor(totalInContinent / 2);
+
+        if (owned.length >= threatThreshold || territoriesNeeded <= 2) {
+          // Calculate which territories this player still needs
+          const missingTerritories = continentTerritories
+            .filter(t => game.territories[t.name].owner !== parseInt(playerId))
+            .map(t => ({
+              name: t.name,
+              owner: game.territories[t.name].owner,
+              troops: game.territories[t.name].troops
+            }));
+
+          // Higher priority for:
+          // - Fewer territories needed
+          // - Smaller continents (easier to complete)
+          // - Higher continent bonus
+          const urgency = (1 / (territoriesNeeded + 0.5)) *
+                          (isSmallContinent ? 2 : 1) *
+                          CONTINENTS[c].bonus;
+
+          threats.push({
+            playerId: parseInt(playerId),
+            continent: c,
+            territoriesNeeded,
+            ownedTerritories: owned,
+            missingTerritories,
+            totalTroops: ownerCounts[playerId].troops,
+            bonus: CONTINENTS[c].bonus,
+            urgency,
+            isSmallContinent
+          });
+        }
+      }
+    }
+
+    // Sort by urgency (higher = more threatening)
+    return threats.sort((a, b) => b.urgency - a.urgency);
+  }
+
+  /**
+   * Find weak players who can potentially be eliminated
+   * Returns array of { playerId, territoryCount, territories, totalTroops, canEliminate }
+   * @param {object} game - Game state
+   * @param {number} attackerId - Current AI player
+   * @returns {Array} Array of weak player info
+   */
+  function findEliminationTargets(game, attackerId) {
+    const targets = [];
+    const attackerTerritories = game.getPlayerTerritories(attackerId);
+
+    for (const player of game.players) {
+      if (player.eliminated || player.id === attackerId) continue;
+
+      const playerTerritories = game.getPlayerTerritories(player.id);
+      const territoryCount = playerTerritories.length;
+
+      // Only consider as elimination target if they have few territories
+      if (territoryCount <= 5) {
+        // Check which of their territories we can reach
+        const reachableTerritories = [];
+        let totalDefenderTroops = 0;
+        let totalAttackerTroopsAdjacent = 0;
+
+        for (const defT of playerTerritories) {
+          const defTroops = game.territories[defT.name].troops;
+          totalDefenderTroops += defTroops;
+
+          // Check if we have an adjacent territory to attack from
+          const defData = game.allTerritories.find(t => t.name === defT.name);
+          if (defData) {
+            for (const neighbor of defData.borders) {
+              if (game.territories[neighbor]?.owner === attackerId) {
+                const attackerTroops = game.territories[neighbor].troops;
+                reachableTerritories.push({
+                  target: defT.name,
+                  defenderTroops: defTroops,
+                  attackFrom: neighbor,
+                  attackerTroops
+                });
+                totalAttackerTroopsAdjacent = Math.max(totalAttackerTroopsAdjacent, attackerTroops);
+              }
+            }
+          }
+        }
+
+        // Check if elimination is possible (we can reach all their territories)
+        const uniqueTargets = [...new Set(reachableTerritories.map(r => r.target))];
+        const canEliminate = uniqueTargets.length === territoryCount && reachableTerritories.length > 0;
+
+        // Check for continent threat from this player
+        const continentThreats = findContinentThreats(game, attackerId)
+          .filter(t => t.playerId === player.id);
+        const hasContinentThreat = continentThreats.length > 0;
+
+        targets.push({
+          playerId: player.id,
+          playerName: player.name,
+          territoryCount,
+          territories: playerTerritories.map(t => t.name),
+          reachableTerritories,
+          totalDefenderTroops,
+          canEliminate,
+          hasContinentThreat,
+          continentThreats,
+          // Higher priority for fewer territories and continent threats
+          priority: (6 - territoryCount) * 10 + (hasContinentThreat ? 50 : 0) + (canEliminate ? 20 : 0)
+        });
+      }
+    }
+
+    return targets.sort((a, b) => b.priority - a.priority);
+  }
+
   const STRATEGIES = {
     aggressive: {
       name: "Aggressive",
       placeArmies(game, player, armies) {
         const territories = game.getPlayerTerritories(player.id);
+
+        // Aggressive still prioritizes elimination - place armies for maximum killing potential
+        const elimTargets = findEliminationTargets(game, player.id);
+        const priorityTarget = elimTargets.find(t => t.reachableTerritories.length > 0);
+        if (priorityTarget) {
+          const bestAttack = priorityTarget.reachableTerritories
+            .sort((a, b) => b.attackerTroops - a.attackerTroops)[0];
+          if (bestAttack) {
+            return [{ territory: bestAttack.attackFrom, amount: armies }];
+          }
+        }
+
+        // Default: place on territory adjacent to weakest enemy
         let bestT = null, bestWeakness = Infinity;
         for (const t of territories) {
           for (const e of game.getEnemyNeighbors(t.name, player.id)) {
@@ -220,6 +380,25 @@
       },
       attack(game, player) {
         const attacks = [];
+
+        // Aggressive loves eliminating players - check for elimination targets first
+        const elimTargets = findEliminationTargets(game, player.id);
+        for (const elimTarget of elimTargets) {
+          for (const reach of elimTarget.reachableTerritories) {
+            const winProb = getWinProbability(reach.attackerTroops, reach.defenderTroops);
+            if (winProb >= WIN_THRESHOLDS.aggressive) {
+              attacks.push({
+                from: reach.attackFrom,
+                to: reach.target,
+                winProb,
+                priority: 50 + (6 - elimTarget.territoryCount) * 10 + (elimTarget.canEliminate ? 30 : 0),
+                maxAttacks: 50
+              });
+            }
+          }
+        }
+
+        // Then attack everything else
         for (const t of game.getPlayerTerritories(player.id).sort((a, b) => game.territories[b.name].troops - game.territories[a.name].troops)) {
           const myTroops = game.territories[t.name].troops;
           if (myTroops <= 1) continue;
@@ -227,12 +406,12 @@
             const winProb = getWinProbability(myTroops, e.troops);
             // Aggressive: attacks even with just 25% win chance
             if (winProb >= WIN_THRESHOLDS.aggressive) {
-              attacks.push({ from: t.name, to: e.name, winProb, maxAttacks: 50 });
+              attacks.push({ from: t.name, to: e.name, winProb, priority: 0, maxAttacks: 50 });
             }
           }
         }
-        // Sort by win probability descending - no artificial limit, attack all viable targets
-        return attacks.sort((a, b) => (b.winProb || 0) - (a.winProb || 0));
+        // Sort by priority then win probability
+        return attacks.sort((a, b) => (b.priority || 0) - (a.priority || 0) || (b.winProb || 0) - (a.winProb || 0));
       },
       fortify(game, player) {
         // Aggressive accepts higher vulnerability (0.60) - prioritizes offense
@@ -291,6 +470,20 @@
     continental: {
       name: "Continental",
       placeArmies(game, player, armies) {
+        // First check if we need to block an opponent's continent completion
+        const threats = findContinentThreats(game, player.id);
+        const urgentThreat = threats.find(t => t.territoriesNeeded <= 2 && t.isSmallContinent);
+
+        if (urgentThreat) {
+          // Find our territory adjacent to their continent that we can reinforce
+          for (const missing of urgentThreat.missingTerritories) {
+            if (missing.owner === player.id) {
+              // We own one of the territories they need - reinforce it!
+              return [{ territory: missing.name, amount: armies }];
+            }
+          }
+        }
+
         const target = findContinentTarget(game, player.id);
         if (target) {
           const adjacency = target.owned
@@ -305,7 +498,41 @@
         return STRATEGIES.defensive.placeArmies(game, player, armies);
       },
       attack(game, player) {
-        const attacks = [], target = findContinentTarget(game, player.id);
+        const attacks = [];
+
+        // PRIORITY 1: Block opponents close to completing small continents
+        const threats = findContinentThreats(game, player.id);
+        for (const threat of threats) {
+          if (threat.territoriesNeeded <= 2) {
+            // Attack one of their territories in that continent to block them
+            for (const t of game.getPlayerTerritories(player.id)) {
+              const myTroops = game.territories[t.name].troops;
+              if (myTroops <= 1) continue;
+              const tData = game.allTerritories.find(x => x.name === t.name);
+              if (tData) {
+                for (const enemyT of threat.ownedTerritories) {
+                  if (tData.borders.includes(enemyT)) {
+                    const defenderTroops = game.territories[enemyT].troops;
+                    const winProb = getWinProbability(myTroops, defenderTroops);
+                    // More willing to attack to block continent (40% threshold)
+                    if (winProb >= 0.40) {
+                      attacks.push({
+                        from: t.name,
+                        to: enemyT,
+                        winProb,
+                        priority: 100 + threat.urgency * 10, // High priority for blocking
+                        maxAttacks: 50
+                      });
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+
+        // PRIORITY 2: Complete our own continent
+        const target = findContinentTarget(game, player.id);
         if (target) {
           for (const t of game.getPlayerTerritories(player.id)) {
             const myTroops = game.territories[t.name].troops;
@@ -316,24 +543,82 @@
                 if (tData.borders.includes(m.name)) {
                   const defenderTroops = game.territories[m.name].troops;
                   const winProb = getWinProbability(myTroops, defenderTroops);
-                  // Continental: attacks with 50% win chance for continent goals
                   if (winProb >= WIN_THRESHOLDS.continental) {
-                    attacks.push({ from: t.name, to: m.name, winProb, maxAttacks: 50 });
+                    attacks.push({
+                      from: t.name,
+                      to: m.name,
+                      winProb,
+                      priority: 80, // High but below blocking
+                      maxAttacks: 50
+                    });
                   }
                 }
               }
             }
           }
         }
-        // Sort continent attacks by win probability
-        attacks.sort((a, b) => (b.winProb || 0) - (a.winProb || 0));
-        // If few continent targets, also attack other viable targets
+
+        // PRIORITY 3: Eliminate weak players (especially those threatening continents)
+        const elimTargets = findEliminationTargets(game, player.id);
+        for (const elimTarget of elimTargets) {
+          if (elimTarget.canEliminate || elimTarget.hasContinentThreat) {
+            for (const reach of elimTarget.reachableTerritories) {
+              const winProb = getWinProbability(reach.attackerTroops, reach.defenderTroops);
+              if (winProb >= 0.35) {
+                attacks.push({
+                  from: reach.attackFrom,
+                  to: reach.target,
+                  winProb,
+                  priority: 70 + (elimTarget.canEliminate ? 20 : 0) + (elimTarget.hasContinentThreat ? 15 : 0),
+                  maxAttacks: 50
+                });
+              }
+            }
+          }
+        }
+
+        // Sort by priority first, then win probability
+        attacks.sort((a, b) => (b.priority || 0) - (a.priority || 0) || (b.winProb || 0) - (a.winProb || 0));
+
+        // If few high-priority targets, also attack other viable targets
         if (attacks.length < 3) attacks.push(...STRATEGIES.aggressive.attack(game, player));
-        // No artificial limit - pursue all viable attacks
+
         return attacks;
       },
       fortify(game, player) {
-        // Continental accepts moderate vulnerability (0.50)
+        // Check if we should fortify toward blocking an opponent
+        const threats = findContinentThreats(game, player.id);
+        const urgentThreat = threats.find(t => t.territoriesNeeded <= 2);
+
+        if (urgentThreat) {
+          // Find our territory adjacent to their continent
+          const territories = game.getPlayerTerritories(player.id);
+          for (const t of territories) {
+            const tData = game.allTerritories.find(x => x.name === t.name);
+            if (tData) {
+              for (const enemyT of urgentThreat.ownedTerritories) {
+                if (tData.borders.includes(enemyT)) {
+                  // This is a good destination - find troops to move here
+                  const sources = territories.filter(s =>
+                    s.name !== t.name &&
+                    game.territories[s.name].troops > 2 &&
+                    game.areConnected(s.name, t.name, player.id)
+                  ).sort((a, b) => game.territories[b.name].troops - game.territories[a.name].troops);
+
+                  if (sources.length > 0) {
+                    const source = sources[0];
+                    const moveAmount = Math.floor((game.territories[source.name].troops - 1) / 2);
+                    if (moveAmount > 0) {
+                      return { from: source.name, to: t.name, amount: moveAmount };
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+
+        // Default fortification
         return smartFortify(game, player, 0.50);
       }
     },
@@ -378,36 +663,129 @@
       name: "Eliminator",
       placeArmies(game, player, armies) {
         const territories = game.getPlayerTerritories(player.id);
-        const weak = game.players.filter(p => !p.eliminated && p.id !== player.id && game.getPlayerTerritories(p.id).length <= 3);
-        if (weak.length > 0) {
-          for (const t of territories) {
-            for (const e of game.getEnemyNeighbors(t.name, player.id)) {
-              if (weak.some(w => w.id === e.owner)) return [{ territory: t.name, amount: armies }];
-            }
+
+        // Use the new elimination targets helper
+        const elimTargets = findEliminationTargets(game, player.id);
+
+        // Prioritize players who threaten continent control
+        const priorityTarget = elimTargets.find(t => t.hasContinentThreat && t.reachableTerritories.length > 0);
+        if (priorityTarget) {
+          // Place armies on our territory that can attack them
+          const bestAttack = priorityTarget.reachableTerritories
+            .sort((a, b) => b.attackerTroops - a.attackerTroops)[0];
+          if (bestAttack) {
+            return [{ territory: bestAttack.attackFrom, amount: armies }];
           }
         }
+
+        // Otherwise find any weak player we can reach
+        const anyTarget = elimTargets.find(t => t.reachableTerritories.length > 0);
+        if (anyTarget) {
+          const bestAttack = anyTarget.reachableTerritories
+            .sort((a, b) => b.attackerTroops - a.attackerTroops)[0];
+          if (bestAttack) {
+            return [{ territory: bestAttack.attackFrom, amount: armies }];
+          }
+        }
+
         return STRATEGIES.aggressive.placeArmies(game, player, armies);
       },
       attack(game, player) {
-        const attacks = [], counts = {};
-        for (const p of game.players) if (!p.eliminated) counts[p.id] = game.getPlayerTerritories(p.id).length;
+        const attacks = [];
+
+        // Use the new elimination targets helper
+        const elimTargets = findEliminationTargets(game, player.id);
+
+        // PRIORITY 1: Eliminate players who threaten continent control
+        for (const target of elimTargets.filter(t => t.hasContinentThreat)) {
+          for (const reach of target.reachableTerritories) {
+            const winProb = getWinProbability(reach.attackerTroops, reach.defenderTroops);
+            if (winProb >= 0.30) { // More aggressive threshold for dangerous targets
+              attacks.push({
+                from: reach.attackFrom,
+                to: reach.target,
+                priority: 150 + target.priority, // Highest priority
+                winProb,
+                maxAttacks: 50
+              });
+            }
+          }
+        }
+
+        // PRIORITY 2: Eliminate any weak player we can reach
+        for (const target of elimTargets.filter(t => t.canEliminate)) {
+          for (const reach of target.reachableTerritories) {
+            const winProb = getWinProbability(reach.attackerTroops, reach.defenderTroops);
+            if (winProb >= WIN_THRESHOLDS.eliminator) {
+              attacks.push({
+                from: reach.attackFrom,
+                to: reach.target,
+                priority: 100 + (6 - target.territoryCount) * 10,
+                winProb,
+                maxAttacks: 50
+              });
+            }
+          }
+        }
+
+        // PRIORITY 3: Attack weak players even if we can't eliminate them
+        for (const target of elimTargets) {
+          for (const reach of target.reachableTerritories) {
+            const winProb = getWinProbability(reach.attackerTroops, reach.defenderTroops);
+            if (winProb >= WIN_THRESHOLDS.eliminator) {
+              attacks.push({
+                from: reach.attackFrom,
+                to: reach.target,
+                priority: 50 + (6 - target.territoryCount) * 5,
+                winProb,
+                maxAttacks: 50
+              });
+            }
+          }
+        }
+
+        // PRIORITY 4: Standard attacks on any enemy
         for (const t of game.getPlayerTerritories(player.id)) {
           const myTroops = game.territories[t.name].troops;
           if (myTroops <= 1) continue;
           for (const e of game.getEnemyNeighbors(t.name, player.id)) {
             const winProb = getWinProbability(myTroops, e.troops);
-            // Eliminator: attacks with 40% win chance, prioritizes weak players
             if (winProb >= WIN_THRESHOLDS.eliminator) {
-              const priority = (counts[e.owner] || 99) <= 3 ? 100 - (counts[e.owner] || 99) : 0;
-              attacks.push({ from: t.name, to: e.name, priority, winProb, maxAttacks: 50 });
+              attacks.push({ from: t.name, to: e.name, priority: 0, winProb, maxAttacks: 50 });
             }
           }
         }
-        // Sort by priority first (weak players), then by win probability - no artificial limit
+
+        // Sort by priority first, then by win probability
         return attacks.sort((a, b) => (b.priority || 0) - (a.priority || 0) || (b.winProb || 0) - (a.winProb || 0));
       },
       fortify(game, player) {
-        // Eliminator accepts higher vulnerability (0.55) - focused on eliminating players
+        // Check if we should fortify toward an elimination target
+        const elimTargets = findEliminationTargets(game, player.id);
+        const priorityTarget = elimTargets.find(t => t.hasContinentThreat || t.canEliminate);
+
+        if (priorityTarget && priorityTarget.reachableTerritories.length > 0) {
+          const territories = game.getPlayerTerritories(player.id);
+          // Find our territory adjacent to the target
+          const adjacentTerritory = priorityTarget.reachableTerritories[0].attackFrom;
+
+          // Find troops to move there
+          const sources = territories.filter(s =>
+            s.name !== adjacentTerritory &&
+            game.territories[s.name].troops > 3 &&
+            game.areConnected(s.name, adjacentTerritory, player.id)
+          ).sort((a, b) => game.territories[b.name].troops - game.territories[a.name].troops);
+
+          if (sources.length > 0) {
+            const source = sources[0];
+            const moveAmount = game.territories[source.name].troops - 2;
+            if (moveAmount > 0) {
+              return { from: source.name, to: adjacentTerritory, amount: moveAmount };
+            }
+          }
+        }
+
+        // Default: aggressive fortification
         return smartFortify(game, player, 0.55);
       }
     },
@@ -469,25 +847,102 @@
     balanced: {
       name: "Balanced",
       placeArmies(game, player, armies) {
+        // Check for urgent threats first
+        const threats = findContinentThreats(game, player.id);
+        const urgentThreat = threats.find(t => t.territoriesNeeded <= 2 && t.isSmallContinent);
+
+        if (urgentThreat) {
+          // Try to find a territory to block with
+          const territories = game.getPlayerTerritories(player.id);
+          for (const t of territories) {
+            const tData = game.allTerritories.find(x => x.name === t.name);
+            if (tData) {
+              const canBlock = urgentThreat.ownedTerritories.some(enemyT => tData.borders.includes(enemyT));
+              if (canBlock) {
+                return [{ territory: t.name, amount: armies }];
+              }
+            }
+          }
+        }
+
+        // Check for elimination targets
+        const elimTargets = findEliminationTargets(game, player.id);
+        const priorityTarget = elimTargets.find(t => t.canEliminate && t.reachableTerritories.length > 0);
+        if (priorityTarget) {
+          const bestAttack = priorityTarget.reachableTerritories
+            .sort((a, b) => b.attackerTroops - a.attackerTroops)[0];
+          if (bestAttack) {
+            return [{ territory: bestAttack.attackFrom, amount: armies }];
+          }
+        }
+
         const target = findContinentTarget(game, player.id);
         if (target) return STRATEGIES.continental.placeArmies(game, player, armies);
         return STRATEGIES.defensive.placeArmies(game, player, armies);
       },
       attack(game, player) {
         const attacks = [];
+
+        // Check for continent threats to block
+        const threats = findContinentThreats(game, player.id);
+
+        // PRIORITY 1: Block opponents close to completing small continents
+        for (const threat of threats.filter(t => t.territoriesNeeded <= 2 && t.isSmallContinent)) {
+          for (const t of game.getPlayerTerritories(player.id)) {
+            const myTroops = game.territories[t.name].troops;
+            if (myTroops <= 1) continue;
+            const tData = game.allTerritories.find(x => x.name === t.name);
+            if (tData) {
+              for (const enemyT of threat.ownedTerritories) {
+                if (tData.borders.includes(enemyT)) {
+                  const defenderTroops = game.territories[enemyT].troops;
+                  const winProb = getWinProbability(myTroops, defenderTroops);
+                  if (winProb >= 0.45) {
+                    attacks.push({
+                      from: t.name,
+                      to: enemyT,
+                      winProb,
+                      priority: 80 + threat.urgency * 10,
+                      maxAttacks: 50
+                    });
+                  }
+                }
+              }
+            }
+          }
+        }
+
+        // PRIORITY 2: Eliminate weak players
+        const elimTargets = findEliminationTargets(game, player.id);
+        for (const elimTarget of elimTargets.filter(t => t.canEliminate)) {
+          for (const reach of elimTarget.reachableTerritories) {
+            const winProb = getWinProbability(reach.attackerTroops, reach.defenderTroops);
+            if (winProb >= WIN_THRESHOLDS.balanced) {
+              attacks.push({
+                from: reach.attackFrom,
+                to: reach.target,
+                winProb,
+                priority: 60 + (6 - elimTarget.territoryCount) * 10,
+                maxAttacks: 50
+              });
+            }
+          }
+        }
+
+        // PRIORITY 3: Standard attacks
         for (const t of game.getPlayerTerritories(player.id)) {
           const myTroops = game.territories[t.name].troops;
           if (myTroops <= 1) continue;
           for (const e of game.getEnemyNeighbors(t.name, player.id)) {
             const winProb = getWinProbability(myTroops, e.troops);
-            // Balanced: attacks with 50% win chance
             if (winProb >= WIN_THRESHOLDS.balanced) {
-              attacks.push({ from: t.name, to: e.name, winProb, maxAttacks: 50 });
+              attacks.push({ from: t.name, to: e.name, winProb, priority: 0, maxAttacks: 50 });
             }
           }
         }
-        // No artificial limit - attack all viable targets
-        return attacks.sort((a, b) => (b.winProb || 0) - (a.winProb || 0));
+
+        // Sort by priority first, then win probability
+        return attacks.sort((a, b) => (b.priority || 0) - (a.priority || 0) || (b.winProb || 0) - (a.winProb || 0));
       },
       fortify(game, player) {
         // Balanced accepts moderate vulnerability (0.45)
@@ -501,13 +956,15 @@
         const territories = game.getPlayerTerritories(player.id);
         const target = findContinentTarget(game, player.id);
 
-        // Count territories for each player to find elimination targets
-        const playerCounts = {};
-        for (const p of game.players) {
-          if (!p.eliminated && p.id !== player.id) {
-            playerCounts[p.id] = game.getPlayerTerritories(p.id).length;
-          }
-        }
+        // Check for urgent threats (opponents close to continent control)
+        const threats = findContinentThreats(game, player.id);
+        const urgentThreats = threats.filter(t => t.territoriesNeeded <= 2);
+
+        // Check for elimination targets
+        const elimTargets = findEliminationTargets(game, player.id);
+        const priorityElimTarget = elimTargets.find(t =>
+          (t.canEliminate || t.hasContinentThreat) && t.reachableTerritories.length > 0
+        );
 
         // Score each territory for army placement
         const scored = territories.map(t => {
@@ -515,57 +972,72 @@
           const enemies = game.getEnemyNeighbors(t.name, player.id);
           let score = 0;
 
-          // Bonus for continental targets - high priority
-          if (target && tData) {
-            const continentHits = target.missing.filter(m => tData.borders.includes(m.name)).length;
-            score += continentHits * 30; // Strong bonus for continental completion
-          }
-
-          // Bonus for being adjacent to weak players
-          for (const enemy of enemies) {
-            const ownerCount = playerCounts[enemy.owner] || 99;
-            if (ownerCount <= 5) {
-              // Higher bonus for weaker players (closer to elimination)
-              score += Math.max(0, 25 - (ownerCount * 4));
+          // HIGHEST PRIORITY: Can we eliminate someone with a continent threat?
+          if (priorityElimTarget && priorityElimTarget.hasContinentThreat) {
+            const isAdjacentToTarget = priorityElimTarget.reachableTerritories
+              .some(r => r.attackFrom === t.name);
+            if (isAdjacentToTarget) {
+              score += 200; // Highest priority
             }
           }
 
-          // Bonus for favorable attack opportunities (opportunist logic)
-          const myTroops = game.territories[t.name].troops + armies;
-          for (const enemy of enemies) {
-            const ratio = myTroops / (enemy.troops + 1);
-            if (ratio > 2) score += 10; // Good attack opportunity
-            if (ratio > 3) score += 10; // Great attack opportunity
+          // HIGH PRIORITY: Block opponent continent completion
+          for (const threat of urgentThreats) {
+            if (tData) {
+              // Check if we can attack their continent from here
+              const canAttackContinent = threat.ownedTerritories
+                .some(enemyT => tData.borders.includes(enemyT));
+              if (canAttackContinent) {
+                score += 150 + threat.urgency * 20;
+              }
+            }
           }
 
-          // Small bonus for border territories in general
+          // MEDIUM-HIGH: Elimination targets (even without continent threat)
+          if (priorityElimTarget) {
+            const isAdjacentToTarget = priorityElimTarget.reachableTerritories
+              .some(r => r.attackFrom === t.name);
+            if (isAdjacentToTarget) {
+              score += 100 + (6 - priorityElimTarget.territoryCount) * 15;
+            }
+          }
+
+          // MEDIUM: Complete our own continent
+          if (target && tData) {
+            const continentHits = target.missing.filter(m => tData.borders.includes(m.name)).length;
+            score += continentHits * 40;
+          }
+
+          // LOWER: General attack opportunities
+          for (const enemy of enemies) {
+            const myTroops = game.territories[t.name].troops + armies;
+            const ratio = myTroops / (enemy.troops + 1);
+            if (ratio > 2) score += 10;
+            if (ratio > 3) score += 15;
+          }
+
+          // Small bonus for border presence
           if (enemies.length > 0) score += 5;
 
           return { territory: t, score };
         });
 
-        // Sort by score and place armies on highest scored territory
         scored.sort((a, b) => b.score - a.score);
 
         if (scored.length > 0 && scored[0].score > 0) {
           return [{ territory: scored[0].territory.name, amount: armies }];
         }
 
-        // Fallback to aggressive placement on territory adjacent to weakest enemy
         return STRATEGIES.aggressive.placeArmies(game, player, armies);
       },
       attack(game, player) {
-        // Emperor: masterfully combines continental control, player elimination, and opportunism
+        // Emperor: the master strategist - combines all threat analysis
         const attacks = [];
         const target = findContinentTarget(game, player.id);
 
-        // Count territories for each player
-        const playerCounts = {};
-        for (const p of game.players) {
-          if (!p.eliminated) {
-            playerCounts[p.id] = game.getPlayerTerritories(p.id).length;
-          }
-        }
+        // Get threats and elimination targets
+        const threats = findContinentThreats(game, player.id);
+        const elimTargets = findEliminationTargets(game, player.id);
 
         // Build set of continental targets for quick lookup
         const continentTargets = new Set();
@@ -575,6 +1047,92 @@
           }
         }
 
+        // PRIORITY 1: Eliminate players who threaten continent control
+        for (const elimTarget of elimTargets.filter(t => t.hasContinentThreat)) {
+          for (const reach of elimTarget.reachableTerritories) {
+            const winProb = getWinProbability(reach.attackerTroops, reach.defenderTroops);
+            if (winProb >= 0.25) { // Very aggressive for dangerous targets
+              attacks.push({
+                from: reach.attackFrom,
+                to: reach.target,
+                priority: 300 + elimTarget.priority,
+                winProb,
+                maxAttacks: 50
+              });
+            }
+          }
+        }
+
+        // PRIORITY 2: Block opponents close to continent control
+        for (const threat of threats.filter(t => t.territoriesNeeded <= 2)) {
+          for (const t of game.getPlayerTerritories(player.id)) {
+            const myTroops = game.territories[t.name].troops;
+            if (myTroops <= 1) continue;
+            const tData = game.allTerritories.find(x => x.name === t.name);
+            if (tData) {
+              for (const enemyT of threat.ownedTerritories) {
+                if (tData.borders.includes(enemyT)) {
+                  const defenderTroops = game.territories[enemyT].troops;
+                  const winProb = getWinProbability(myTroops, defenderTroops);
+                  if (winProb >= 0.30) {
+                    attacks.push({
+                      from: t.name,
+                      to: enemyT,
+                      priority: 200 + threat.urgency * 20,
+                      winProb,
+                      maxAttacks: 50
+                    });
+                  }
+                }
+              }
+            }
+          }
+        }
+
+        // PRIORITY 3: Eliminate any weak player we can
+        for (const elimTarget of elimTargets.filter(t => t.canEliminate)) {
+          for (const reach of elimTarget.reachableTerritories) {
+            const winProb = getWinProbability(reach.attackerTroops, reach.defenderTroops);
+            if (winProb >= 0.35) {
+              attacks.push({
+                from: reach.attackFrom,
+                to: reach.target,
+                priority: 150 + (6 - elimTarget.territoryCount) * 20,
+                winProb,
+                maxAttacks: 50
+              });
+            }
+          }
+        }
+
+        // PRIORITY 4: Complete our own continent
+        if (target) {
+          for (const t of game.getPlayerTerritories(player.id)) {
+            const myTroops = game.territories[t.name].troops;
+            if (myTroops <= 1) continue;
+            const tData = game.allTerritories.find(x => x.name === t.name);
+            if (tData) {
+              for (const m of target.missing) {
+                if (tData.borders.includes(m.name)) {
+                  const defenderTroops = game.territories[m.name].troops;
+                  const winProb = getWinProbability(myTroops, defenderTroops);
+                  if (winProb >= 0.40) {
+                    const territoriesRemaining = target.missing.length;
+                    attacks.push({
+                      from: t.name,
+                      to: m.name,
+                      priority: 100 + (30 / territoriesRemaining) + (territoriesRemaining === 1 ? 50 : 0),
+                      winProb,
+                      maxAttacks: 50
+                    });
+                  }
+                }
+              }
+            }
+          }
+        }
+
+        // PRIORITY 5: General opportunistic attacks
         for (const t of game.getPlayerTerritories(player.id).sort((a, b) =>
           game.territories[b.name].troops - game.territories[a.name].troops)) {
           const myTroops = game.territories[t.name].troops;
@@ -582,59 +1140,87 @@
 
           for (const e of game.getEnemyNeighbors(t.name, player.id)) {
             const winProb = getWinProbability(myTroops, e.troops);
-
-            // Emperor uses lower threshold (35%) - aggressive but calculated
-            if (winProb >= 0.35) {
-              let priority = 0;
-
-              // HIGHEST: Continental completion attacks (especially last territory)
-              if (continentTargets.has(e.name)) {
-                const territoriesRemaining = target.missing.length;
-                // Bonus scales with how close we are to completion
-                priority += 50 + (30 / territoriesRemaining);
-                // Extra bonus for last territory in continent
-                if (territoriesRemaining === 1) priority += 50;
-              }
-
-              // HIGH: Elimination priority (more generous threshold than eliminator)
-              const ownerCount = playerCounts[e.owner] || 99;
-              if (ownerCount <= 5) {
-                // Huge bonus for potential elimination (cards!)
-                priority += 40 + Math.max(0, (6 - ownerCount) * 15);
-                // Extra bonus if this is their last territory
-                if (ownerCount === 1) priority += 100;
-              }
-
-              // MEDIUM: Win probability bonus - favor high-probability attacks
-              priority += winProb * 25;
-
-              // SMALL: Bonus for attacking weak territories (easy wins for cards)
-              if (e.troops <= 2 && winProb >= 0.6) {
-                priority += 15; // Easy card acquisition
-              }
-
+            if (winProb >= 0.40) {
+              let priority = winProb * 30;
+              // Bonus for weak territories (easy card)
+              if (e.troops <= 2 && winProb >= 0.7) priority += 20;
               attacks.push({ from: t.name, to: e.name, priority, winProb, maxAttacks: 50 });
             }
           }
         }
 
-        // Sort by composite priority score
+        // Sort by priority, then win probability
         return attacks.sort((a, b) => b.priority - a.priority || b.winProb - a.winProb);
       },
       fortify(game, player) {
         const territories = game.getPlayerTerritories(player.id);
-        const target = findContinentTarget(game, player.id);
 
-        // If we have a continent target, try to fortify toward it
+        // Check for urgent threats to block
+        const threats = findContinentThreats(game, player.id);
+        const urgentThreat = threats.find(t => t.territoriesNeeded <= 2);
+
+        // Check for elimination targets to fortify toward
+        const elimTargets = findEliminationTargets(game, player.id);
+        const priorityElimTarget = elimTargets.find(t =>
+          (t.canEliminate || t.hasContinentThreat) && t.reachableTerritories.length > 0
+        );
+
+        // PRIORITY 1: Fortify toward blocking a continent threat
+        if (urgentThreat) {
+          for (const t of territories) {
+            const tData = game.allTerritories.find(x => x.name === t.name);
+            if (tData) {
+              for (const enemyT of urgentThreat.ownedTerritories) {
+                if (tData.borders.includes(enemyT)) {
+                  // Move troops to this territory for blocking
+                  const sources = territories.filter(s =>
+                    s.name !== t.name &&
+                    game.territories[s.name].troops > 3 &&
+                    game.areConnected(s.name, t.name, player.id)
+                  ).sort((a, b) => game.territories[b.name].troops - game.territories[a.name].troops);
+
+                  if (sources.length > 0) {
+                    const source = sources[0];
+                    const moveAmount = game.territories[source.name].troops - 2;
+                    if (moveAmount > 0) {
+                      return { from: source.name, to: t.name, amount: moveAmount };
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+
+        // PRIORITY 2: Fortify toward elimination target
+        if (priorityElimTarget && priorityElimTarget.reachableTerritories.length > 0) {
+          const adjacentTerritory = priorityElimTarget.reachableTerritories
+            .sort((a, b) => b.attackerTroops - a.attackerTroops)[0].attackFrom;
+
+          const sources = territories.filter(s =>
+            s.name !== adjacentTerritory &&
+            game.territories[s.name].troops > 3 &&
+            game.areConnected(s.name, adjacentTerritory, player.id)
+          ).sort((a, b) => game.territories[b.name].troops - game.territories[a.name].troops);
+
+          if (sources.length > 0) {
+            const source = sources[0];
+            const moveAmount = game.territories[source.name].troops - 2;
+            if (moveAmount > 0) {
+              return { from: source.name, to: adjacentTerritory, amount: moveAmount };
+            }
+          }
+        }
+
+        // PRIORITY 3: Fortify toward our continent target
+        const target = findContinentTarget(game, player.id);
         if (target) {
-          // Find our territories adjacent to missing continent territories
           const adjacentToTarget = territories.filter(t => {
             const tData = game.allTerritories.find(x => x.name === t.name);
             return tData && target.missing.some(m => tData.borders.includes(m.name));
           });
 
           if (adjacentToTarget.length > 0) {
-            // Find the best source of troops
             const potentialSources = territories
               .filter(t => {
                 const troops = game.territories[t.name].troops;
@@ -664,7 +1250,7 @@
           }
         }
 
-        // Fallback to smart fortify with higher acceptable vulnerability
+        // Default fortification
         return smartFortify(game, player, 0.60);
       }
     }

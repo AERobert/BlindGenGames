@@ -327,9 +327,30 @@
 
   // ============== AI ==============
 
+  // Schedule AI action with pause support
+  function scheduleAI(action, delay) {
+    if (G.paused) {
+      G.pendingAIAction = { action, delay };
+      return;
+    }
+    setTimeout(action, delay);
+  }
+
+  // Resume AI when unpaused
+  function resumeAI() {
+    if (G.pendingAIAction) {
+      const { action, delay } = G.pendingAIAction;
+      G.pendingAIAction = null;
+      setTimeout(action, Math.min(delay, 200)); // Quick resume
+    } else if (!currentPlayer()?.isHuman && G.phase !== 'gameover') {
+      // If no pending action but it's AI turn, start fresh
+      setTimeout(aiTurn, 200);
+    }
+  }
+
   function aiTurn() {
     const player = currentPlayer();
-    if (player.isHuman) return;
+    if (player.isHuman || G.paused) return;
     const strategy = STRATEGIES[player.strategy];
     if (!strategy) return;
     switch (G.phase) {
@@ -342,6 +363,7 @@
   }
 
   function aiClaim(player) {
+    if (G.paused) { G.pendingAIAction = { action: () => aiClaim(player), delay: 0 }; return; }
     const unclaimed = TERRITORIES.filter(t => G.territories[t.name].owner === null);
     if (unclaimed.length === 0) return;
     let choice = null;
@@ -355,14 +377,15 @@
     G.territories[choice.name].owner = player.id; G.territories[choice.name].troops = 1; G.setupArmies[player.id]--;
     log(`${player.name} claims ${choice.name}`);
     speech.speak(`${player.name} claims ${choice.name}.`);
-    setTimeout(() => {
+    scheduleAI(() => {
       G.currentPlayer = (G.currentPlayer + 1) % G.players.length;
       if (TERRITORIES.filter(t => G.territories[t.name].owner === null).length === 0) startSetupReinforce();
-      else { updateUI(); if (!currentPlayer().isHuman) setTimeout(aiTurn, G.aiDelay / 2); }
+      else { updateUI(); if (!currentPlayer().isHuman) scheduleAI(aiTurn, G.aiDelay / 2); }
     }, G.aiDelay / 2);
   }
 
   function aiSetupReinforce(player) {
+    if (G.paused) { G.pendingAIAction = { action: () => aiSetupReinforce(player), delay: 0 }; return; }
     const owned = getPlayerTerritories(player.id);
     if (owned.length === 0 || G.setupArmies[player.id] <= 0) { nextSetupPlayer(); return; }
     const borders = owned.filter(t => getEnemyNeighbors(t.name, player.id).length > 0);
@@ -372,10 +395,11 @@
     G.setupArmies[player.id] -= amount;
     log(`${player.name} places ${amount} on ${choice.name} (${G.setupArmies[player.id]} left)`);
     speech.speak(`${player.name} places ${amount} on ${choice.name}. ${G.setupArmies[player.id]} remaining.`);
-    setTimeout(nextSetupPlayer, G.aiDelay / 3);
+    scheduleAI(nextSetupPlayer, G.aiDelay / 3);
   }
 
   function aiReinforce(player, strategy) {
+    if (G.paused) { G.pendingAIAction = { action: () => aiReinforce(player, strategy), delay: 0 }; return; }
     if (player.cards.length >= 3) {
       const set = findValidCardSet(player.cards);
       if (set && (player.cards.length >= 5 || getTradeValue() >= 8)) {
@@ -403,17 +427,19 @@
     }
     G.armiesToPlace = 0;
     updateUI();
-    setTimeout(startAttackPhase, G.aiDelay);
+    scheduleAI(startAttackPhase, G.aiDelay);
   }
 
   function aiAttack(player, strategy) {
+    if (G.paused) { G.pendingAIAction = { action: () => aiAttack(player, strategy), delay: 0 }; return; }
     const attacks = strategy.attack(createGameInterface(), player);
-    if (attacks.length === 0) { setTimeout(startFortifyPhase, G.aiDelay / 2); return; }
+    if (attacks.length === 0) { scheduleAI(startFortifyPhase, G.aiDelay / 2); return; }
     executeAiAttacks(player, attacks, 0);
   }
 
   function executeAiAttacks(player, attacks, index) {
-    if (index >= attacks.length) { setTimeout(startFortifyPhase, G.aiDelay / 2); return; }
+    if (G.paused) { G.pendingAIAction = { action: () => executeAiAttacks(player, attacks, index), delay: 0 }; return; }
+    if (index >= attacks.length) { scheduleAI(startFortifyPhase, G.aiDelay / 2); return; }
     const attack = attacks[index];
     const from = G.territories[attack.from], to = G.territories[attack.to];
     if (from.owner !== player.id || to.owner === player.id || from.troops <= 1) { executeAiAttacks(player, attacks, index + 1); return; }
@@ -423,7 +449,8 @@
     G.stats.attacks[player.id]++;
     let attacksRemaining = attack.maxAttacks || 10;
     const doAttack = () => {
-      if (attacksRemaining <= 0 || from.troops <= 1 || to.owner === player.id) { setTimeout(() => executeAiAttacks(player, attacks, index + 1), G.aiDelay / 3); return; }
+      if (G.paused) { G.pendingAIAction = { action: doAttack, delay: 0 }; return; }
+      if (attacksRemaining <= 0 || from.troops <= 1 || to.owner === player.id) { scheduleAI(() => executeAiAttacks(player, attacks, index + 1), G.aiDelay / 3); return; }
       const result = resolveBattle(attack.from, attack.to);
       attacksRemaining--;
       log(`  [${result.attackRolls}] vs [${result.defendRolls}]: -${result.attackerLosses}/-${result.defenderLosses}`);
@@ -451,17 +478,25 @@
             speech.speak(`${defPlayer.name} eliminated!`);
           }
           sounds.play('elimination'); log(`${defPlayer.name} eliminated`, true);
+          // If human player was eliminated, switch to spectator mode
+          if (defPlayer.isHuman) {
+            G.spectatorMode = true;
+            G.humanPlayerId = -1;
+            speech.speak('You have been eliminated. Switching to spectator mode.');
+            log('Game continues in spectator mode', true);
+          }
         }
         if (checkVictory() !== null) { endGame(checkVictory()); return; }
         updateUI();
-        setTimeout(() => executeAiAttacks(player, attacks, index + 1), G.aiDelay / 2);
-      } else { updateUI(); setTimeout(doAttack, 150); }
+        scheduleAI(() => executeAiAttacks(player, attacks, index + 1), G.aiDelay / 2);
+      } else { updateUI(); scheduleAI(doAttack, 150); }
     };
     sounds.play('attack');
     doAttack();
   }
 
   function aiFortify(player, strategy) {
+    if (G.paused) { G.pendingAIAction = { action: () => aiFortify(player, strategy), delay: 0 }; return; }
     const fortify = strategy.fortify(createGameInterface(), player);
     if (fortify?.amount > 0) {
       const from = G.territories[fortify.from], to = G.territories[fortify.to];
@@ -473,7 +508,7 @@
       }
     }
     updateUI();
-    setTimeout(nextPlayer, G.aiDelay);
+    scheduleAI(nextPlayer, G.aiDelay);
   }
 
   function createGameInterface() {
@@ -506,6 +541,7 @@
     checkVictory,
     checkContinentControl,
     endGame,
-    aiTurn
+    aiTurn,
+    resumeAI
   };
 })();
