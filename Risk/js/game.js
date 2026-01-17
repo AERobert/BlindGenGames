@@ -175,7 +175,15 @@
     let ann = `${player.name}'s turn, Turn ${G.turnNumber}. Reinforcement. ${armies} armies.`;
     if (player.cards.length >= 5) {
       const set = findValidCardSet(player.cards);
-      if (set) { const bonus = executeCardTrade(player, set); G.armiesToPlace += bonus; ann += ` Auto-traded for ${bonus} more.`; }
+      if (set) {
+        const result = executeCardTrade(player, set);
+        G.armiesToPlace += result.value;
+        ann += ` Auto-traded for ${result.value}`;
+        if (result.territoryBonuses.length > 0) {
+          ann += ` plus ${result.territoryBonuses.length * 2} on ${result.territoryBonuses.join(', ')}`;
+        }
+        ann += '.';
+      }
     }
     log(`${player.name} receives ${G.armiesToPlace} armies`);
     speech.speak(ann);
@@ -251,10 +259,17 @@
     G.discardPile.push(...removed);
     G.tradeCount++;
     G.stats.cards[player.id]++;
-    let bonus = 0;
-    for (const card of removed) if (card.territory && G.territories[card.territory]?.owner === player.id) bonus += 2;
-    log(`${player.name} trades cards for ${value + bonus} armies`);
-    return value + bonus;
+    // Per Risk rules: +2 bonus is placed directly on matching owned territories
+    const territoryBonuses = [];
+    for (const card of removed) {
+      if (card.territory && G.territories[card.territory]?.owner === player.id) {
+        G.territories[card.territory].troops += 2;
+        territoryBonuses.push(card.territory);
+      }
+    }
+    const totalBonus = territoryBonuses.length * 2;
+    log(`${player.name} trades cards for ${value} armies` + (totalBonus > 0 ? ` (+${totalBonus} on ${territoryBonuses.join(', ')})` : ''));
+    return { value, territoryBonuses };
   }
 
   function awardCardIfEarned(playerId) {
@@ -364,9 +379,13 @@
     if (player.cards.length >= 3) {
       const set = findValidCardSet(player.cards);
       if (set && (player.cards.length >= 5 || getTradeValue() >= 8)) {
-        const bonus = executeCardTrade(player, set);
-        G.armiesToPlace += bonus;
-        speech.speak(`${player.name} trades cards for ${bonus} armies.`);
+        const result = executeCardTrade(player, set);
+        G.armiesToPlace += result.value;
+        let ann = `${player.name} trades cards for ${result.value}`;
+        if (result.territoryBonuses.length > 0) {
+          ann += ` plus ${result.territoryBonuses.length * 2} on ${result.territoryBonuses.join(', ')}`;
+        }
+        speech.speak(ann + '.');
       }
     }
     const gameInterface = createGameInterface();

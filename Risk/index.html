@@ -203,6 +203,13 @@
         <span class="key-name">R</span><span>Repeat last</span>
         <span class="key-name">?</span><span>This help</span>
       </div>
+      <h3>Card Trading</h3>
+      <p style="margin: 0.5em 0; font-size: 0.9em; color: #ccc;">
+        Valid sets: 3 of same type, one of each type (Infantry+Cavalry+Artillery), or 2 of any type + Wild.<br>
+        Press <strong>T</strong> during reinforcement to trade manually (3-4 cards).<br>
+        At <strong>5+ cards</strong>, you must trade &mdash; the game auto-trades for you.<br>
+        Trading a card for a territory you own places +2 armies directly on that territory.
+      </p>
       <div class="dialog-buttons"><button onclick="ui.hideHelp()">Close (Esc)</button></div>
     </div>
   </div>
@@ -604,10 +611,15 @@
       if (!player.isHuman || G.phase !== 'reinforce') return;
       const set = gameModule.findValidCardSet(player.cards);
       if (!set) { speech.speak('No valid set.'); return; }
-      const bonus = gameModule.executeCardTrade(player, set);
-      G.armiesToPlace += bonus;
+      const result = gameModule.executeCardTrade(player, set);
+      G.armiesToPlace += result.value;
       sounds.play('card');
-      speech.speak(`${player.name} trades cards for ${bonus}. Total: ${G.armiesToPlace}.`);
+      let ann = `${player.name} trades cards for ${result.value}`;
+      if (result.territoryBonuses.length > 0) {
+        ann += `. Plus ${result.territoryBonuses.length * 2} placed directly on ${result.territoryBonuses.join(', ')}`;
+      }
+      ann += `. Total to place: ${G.armiesToPlace}.`;
+      speech.speak(ann);
       ui.updateUI();
     }
 
