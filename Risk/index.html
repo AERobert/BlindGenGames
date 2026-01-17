@@ -207,7 +207,14 @@
     </div>
   </div>
 
-  <script src="js/bundle.js"></script>
+  <!-- Load individual JS modules in dependency order -->
+  <script src="js/data.js"></script>
+  <script src="js/state.js"></script>
+  <script src="js/speech.js"></script>
+  <script src="js/sounds.js"></script>
+  <script src="js/ai.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/game.js"></script>
   <script>
     const { TERRITORIES, NAV_KEYS, findTerritory } = window.RiskData;
     const {
@@ -499,6 +506,10 @@
           document.getElementById('game-screen').classList.remove('hidden');
           ui.updateUI();
           speech.speak(`Resumed. Turn ${G.turnNumber}.`);
+          // Resume AI turn if it was saved during AI's turn
+          if (!currentPlayer()?.isHuman && G.phase !== 'gameover') {
+            setTimeout(gameModule.aiTurn, G.aiDelay);
+          }
         }
       } catch (e) { speech.speak('Failed to load.'); }
     }
@@ -731,6 +742,10 @@
             startIntervals();
             ui.updateUI();
             speech.speak('Loaded.');
+            // Resume AI turn if it was saved during AI's turn
+            if (!currentPlayer()?.isHuman && G.phase !== 'gameover') {
+              setTimeout(gameModule.aiTurn, G.aiDelay);
+            }
           } catch (e) { speech.speak('Failed.'); }
         };
         reader.readAsText(file);
