@@ -80,7 +80,9 @@
     eliminator: 0.40,    // Willing to take risks to eliminate players
     turtle: 0.80,        // Very conservative, only attacks sure things
     balanced: 0.50,      // Middle ground
-    emperor: 0.40        // Aggressive expansion, takes calculated risks
+    emperor: 0.40,       // Aggressive expansion, takes calculated risks
+    hyperAggressive: 0.10, // Attacks relentlessly regardless of odds
+    hyperDefensive: 0.90   // Only attacks with overwhelming force
   };
 
   // ============================================================================
@@ -1252,6 +1254,341 @@
 
         // Default fortification
         return smartFortify(game, player, 0.60);
+      }
+    },
+
+    hyperAggressive: {
+      name: "Hyper Aggressive",
+      placeArmies(game, player, armies) {
+        const territories = game.getPlayerTerritories(player.id);
+
+        // Prioritize continental targets for placement, but aggressively
+        const target = findContinentTarget(game, player.id);
+        if (target) {
+          // Find territory adjacent to most missing continental territories
+          const adjacency = target.owned
+            .map(owned => {
+              const tData = game.allTerritories.find(t => t.name === owned.name);
+              const hits = tData ? target.missing.filter(m => tData.borders.includes(m.name)).length : 0;
+              return { territory: owned, hits };
+            })
+            .sort((a, b) => b.hits - a.hits);
+          if (adjacency.length > 0 && adjacency[0].hits > 0) {
+            return [{ territory: adjacency[0].territory.name, amount: armies }];
+          }
+        }
+
+        // Otherwise, place on territory with most enemy neighbors (maximum aggression)
+        let bestT = null, maxEnemies = 0;
+        for (const t of territories) {
+          const enemies = game.getEnemyNeighbors(t.name, player.id);
+          if (enemies.length > maxEnemies) {
+            maxEnemies = enemies.length;
+            bestT = t;
+          }
+        }
+
+        return bestT ? [{ territory: bestT.name, amount: armies }] :
+               territories.length > 0 ? [{ territory: territories[0].name, amount: armies }] : [];
+      },
+      attack(game, player) {
+        const attacks = [];
+
+        // PRIORITY 1: Continental targets - attack even with poor odds
+        const target = findContinentTarget(game, player.id);
+        if (target) {
+          for (const t of game.getPlayerTerritories(player.id)) {
+            const myTroops = game.territories[t.name].troops;
+            // Hyper aggressive: attacks until only 2 troops left
+            if (myTroops <= 2) continue;
+            const tData = game.allTerritories.find(x => x.name === t.name);
+            if (tData) {
+              for (const m of target.missing) {
+                if (tData.borders.includes(m.name)) {
+                  const defenderTroops = game.territories[m.name].troops;
+                  const winProb = getWinProbability(myTroops, defenderTroops);
+                  // Attack continental targets with even lower threshold
+                  if (winProb >= 0.05 || myTroops > 3) {
+                    attacks.push({
+                      from: t.name,
+                      to: m.name,
+                      winProb,
+                      priority: 100,
+                      maxAttacks: 50,
+                      stopAt: 2 // Custom: stop when 2 troops remain
+                    });
+                  }
+                }
+              }
+            }
+          }
+        }
+
+        // PRIORITY 2: Block opponent continent completion
+        const threats = findContinentThreats(game, player.id);
+        for (const threat of threats.filter(t => t.territoriesNeeded <= 3)) {
+          for (const t of game.getPlayerTerritories(player.id)) {
+            const myTroops = game.territories[t.name].troops;
+            if (myTroops <= 2) continue;
+            const tData = game.allTerritories.find(x => x.name === t.name);
+            if (tData) {
+              for (const enemyT of threat.ownedTerritories) {
+                if (tData.borders.includes(enemyT)) {
+                  const defenderTroops = game.territories[enemyT].troops;
+                  const winProb = getWinProbability(myTroops, defenderTroops);
+                  attacks.push({
+                    from: t.name,
+                    to: enemyT,
+                    winProb,
+                    priority: 90 + threat.urgency * 10,
+                    maxAttacks: 50,
+                    stopAt: 2
+                  });
+                }
+              }
+            }
+          }
+        }
+
+        // PRIORITY 3: Attack EVERYTHING else - no mercy!
+        for (const t of game.getPlayerTerritories(player.id).sort((a, b) =>
+          game.territories[b.name].troops - game.territories[a.name].troops)) {
+          const myTroops = game.territories[t.name].troops;
+          // Only stop when territory has 2 or fewer troops
+          if (myTroops <= 2) continue;
+
+          for (const e of game.getEnemyNeighbors(t.name, player.id).sort((a, b) => a.troops - b.troops)) {
+            const winProb = getWinProbability(myTroops, e.troops);
+            // Attack with even the lowest win probability - only need some chance
+            if (winProb >= WIN_THRESHOLDS.hyperAggressive || myTroops > e.troops) {
+              attacks.push({
+                from: t.name,
+                to: e.name,
+                winProb,
+                priority: 0,
+                maxAttacks: 50,
+                stopAt: 2
+              });
+            }
+          }
+        }
+
+        return attacks.sort((a, b) => (b.priority || 0) - (a.priority || 0) || (b.winProb || 0) - (a.winProb || 0));
+      },
+      fortify(game, player) {
+        // Hyper aggressive: accepts very high vulnerability (0.80) - all about offense
+        return smartFortify(game, player, 0.80);
+      }
+    },
+
+    hyperDefensive: {
+      name: "Hyper Defensive",
+      placeArmies(game, player, armies) {
+        const territories = game.getPlayerTerritories(player.id);
+        const borders = territories.filter(t => game.getEnemyNeighbors(t.name, player.id).length > 0);
+
+        // Find the most threatened border territories
+        const threats = borders.map(t => {
+          const enemies = game.getEnemyNeighbors(t.name, player.id);
+          const maxThreat = enemies.reduce((max, e) => Math.max(max, e.troops), 0);
+          const myTroops = game.territories[t.name].troops;
+          const deficit = 10 - myTroops; // Want at least 10 troops per border
+          return { territory: t, deficit, maxThreat, myTroops };
+        }).sort((a, b) => b.deficit - a.deficit);
+
+        if (threats.length > 0) {
+          // Build walls - prioritize territories that need troops to reach 10
+          const wallTargets = threats.filter(t => t.myTroops < 10);
+          if (wallTargets.length > 0) {
+            // Distribute to build walls, prioritizing most vulnerable
+            const placements = [];
+            let remaining = armies;
+            for (const t of wallTargets) {
+              if (remaining <= 0) break;
+              const needed = Math.min(remaining, t.deficit);
+              if (needed > 0) {
+                placements.push({ territory: t.territory.name, amount: needed });
+                remaining -= needed;
+              }
+            }
+            // If still have remaining, add to strongest wall
+            if (remaining > 0 && threats.length > 0) {
+              const strongest = threats.sort((a, b) => b.myTroops - a.myTroops)[0];
+              placements.push({ territory: strongest.territory.name, amount: remaining });
+            }
+            return placements.length > 0 ? placements : [{ territory: threats[0].territory.name, amount: armies }];
+          }
+
+          // All walls already built - reinforce the most threatened one
+          return [{ territory: threats[0].territory.name, amount: armies }];
+        }
+
+        // No borders? Place on any territory
+        return territories.length > 0 ? [{ territory: territories[0].name, amount: armies }] : [];
+      },
+      attack(game, player) {
+        const attacks = [];
+        let hasAttackedOnce = false;
+
+        // PRIORITY 1: Continental targets - but only with overwhelming force
+        const target = findContinentTarget(game, player.id);
+        if (target) {
+          for (const t of game.getPlayerTerritories(player.id)) {
+            const myTroops = game.territories[t.name].troops;
+            // Hyper defensive: only attacks from territories with 10+ troops
+            if (myTroops < 10) continue;
+            const tData = game.allTerritories.find(x => x.name === t.name);
+            if (tData) {
+              for (const m of target.missing) {
+                if (tData.borders.includes(m.name)) {
+                  const defenderTroops = game.territories[m.name].troops;
+                  const winProb = getWinProbability(myTroops, defenderTroops);
+                  if (winProb >= WIN_THRESHOLDS.hyperDefensive) {
+                    attacks.push({
+                      from: t.name,
+                      to: m.name,
+                      winProb,
+                      priority: 100,
+                      maxAttacks: 50
+                    });
+                    hasAttackedOnce = true;
+                  }
+                }
+              }
+            }
+          }
+        }
+
+        // PRIORITY 2: Block opponent continent completion (still need 10+ troops)
+        const threats = findContinentThreats(game, player.id);
+        for (const threat of threats.filter(t => t.territoriesNeeded <= 2)) {
+          for (const t of game.getPlayerTerritories(player.id)) {
+            const myTroops = game.territories[t.name].troops;
+            if (myTroops < 10) continue;
+            const tData = game.allTerritories.find(x => x.name === t.name);
+            if (tData) {
+              for (const enemyT of threat.ownedTerritories) {
+                if (tData.borders.includes(enemyT)) {
+                  const defenderTroops = game.territories[enemyT].troops;
+                  const winProb = getWinProbability(myTroops, defenderTroops);
+                  if (winProb >= WIN_THRESHOLDS.hyperDefensive) {
+                    attacks.push({
+                      from: t.name,
+                      to: enemyT,
+                      winProb,
+                      priority: 90 + threat.urgency * 10,
+                      maxAttacks: 50
+                    });
+                    hasAttackedOnce = true;
+                  }
+                }
+              }
+            }
+          }
+        }
+
+        // PRIORITY 3: Standard attacks - only with overwhelming odds and 10+ troops
+        for (const t of game.getPlayerTerritories(player.id)) {
+          const myTroops = game.territories[t.name].troops;
+          if (myTroops < 10) continue;
+
+          for (const e of game.getEnemyNeighbors(t.name, player.id)) {
+            const winProb = getWinProbability(myTroops, e.troops);
+            if (winProb >= WIN_THRESHOLDS.hyperDefensive) {
+              attacks.push({
+                from: t.name,
+                to: e.name,
+                winProb,
+                priority: 0,
+                maxAttacks: 50
+              });
+              hasAttackedOnce = true;
+            }
+          }
+        }
+
+        // PRIORITY 4: One guaranteed attack per turn for a card (if no other attacks)
+        // Find the safest possible attack even if odds aren't great
+        if (!hasAttackedOnce && attacks.length === 0) {
+          let bestCardAttack = null;
+          let bestOdds = 0;
+
+          for (const t of game.getPlayerTerritories(player.id).sort((a, b) =>
+            game.territories[b.name].troops - game.territories[a.name].troops)) {
+            const myTroops = game.territories[t.name].troops;
+            if (myTroops <= 1) continue;
+
+            for (const e of game.getEnemyNeighbors(t.name, player.id).sort((a, b) => a.troops - b.troops)) {
+              const winProb = getWinProbability(myTroops, e.troops);
+              // For card attack: find best odds available, even if below threshold
+              if (winProb > bestOdds) {
+                bestOdds = winProb;
+                bestCardAttack = {
+                  from: t.name,
+                  to: e.name,
+                  winProb,
+                  priority: -10, // Low priority - just for card
+                  maxAttacks: 5  // Limited attacks - just try to get the card
+                };
+              }
+            }
+          }
+
+          // Only add card attack if odds are reasonable (at least 30%)
+          if (bestCardAttack && bestOdds >= 0.30) {
+            attacks.push(bestCardAttack);
+          }
+        }
+
+        return attacks.sort((a, b) => (b.priority || 0) - (a.priority || 0) || (b.winProb || 0) - (a.winProb || 0));
+      },
+      fortify(game, player) {
+        const territories = game.getPlayerTerritories(player.id);
+        const borders = territories.filter(t => game.getEnemyNeighbors(t.name, player.id).length > 0);
+
+        // Find borders that need wall reinforcement (below 10 troops)
+        const weakWalls = borders
+          .map(t => ({
+            territory: t,
+            troops: game.territories[t.name].troops,
+            enemies: game.getEnemyNeighbors(t.name, player.id)
+          }))
+          .filter(t => t.troops < 10)
+          .sort((a, b) => a.troops - b.troops);
+
+        if (weakWalls.length > 0) {
+          // Find interior territories with excess troops
+          const interiors = territories
+            .filter(t => game.getEnemyNeighbors(t.name, player.id).length === 0)
+            .filter(t => game.territories[t.name].troops > 1)
+            .sort((a, b) => game.territories[b.name].troops - game.territories[a.name].troops);
+
+          // Also consider strong borders that can spare troops
+          const strongBorders = borders
+            .filter(t => game.territories[t.name].troops > 10)
+            .sort((a, b) => game.territories[b.name].troops - game.territories[a.name].troops);
+
+          const sources = [...interiors, ...strongBorders];
+
+          for (const source of sources) {
+            for (const dest of weakWalls) {
+              if (source.name === dest.territory.name) continue;
+              if (!game.areConnected(source.name, dest.territory.name, player.id)) continue;
+
+              const sourceTroops = game.territories[source.name].troops;
+              const isInterior = game.getEnemyNeighbors(source.name, player.id).length === 0;
+
+              // Interior: move all but 1; Strong border: move down to 10
+              const maxMove = isInterior ? sourceTroops - 1 : sourceTroops - 10;
+              if (maxMove > 0) {
+                return { from: source.name, to: dest.territory.name, amount: maxMove };
+              }
+            }
+          }
+        }
+
+        // Default: very conservative fortification (0.20 vulnerability threshold)
+        return smartFortify(game, player, 0.20);
       }
     }
   };

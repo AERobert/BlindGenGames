@@ -163,11 +163,196 @@
 
   // Random territory assignment
   function randomAssignTerritories(empire = false) {
+    if (empire) {
+      assignEmpireTerritories();
+      return;
+    }
     const names = TERRITORIES.map(t => t.name);
     for (let i = names.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [names[i], names[j]] = [names[j], names[i]]; }
     let idx = 0;
     for (const n of names) { G.territories[n].owner = idx % G.players.length; G.territories[n].troops = 1; G.setupArmies[idx % G.players.length]--; idx++; }
     log('Territories assigned randomly');
+  }
+
+  // Empire Mode: Divide map into contiguous territory groups (ignoring continent borders)
+  // Each player gets a contiguous "empire" of territories
+  // Troops are spread evenly on border territories (those adjacent to enemies)
+  function assignEmpireTerritories() {
+    const numPlayers = G.players.length;
+    const allNames = TERRITORIES.map(t => t.name);
+    const territoriesPerPlayer = Math.floor(allNames.length / numPlayers);
+
+    // Pick random starting points spread across the map
+    const startingPoints = [];
+    const shuffledNames = shuffle([...allNames]);
+
+    // Try to pick starting points that are spread out
+    for (let i = 0; i < numPlayers; i++) {
+      // Pick from different regions of the shuffled list to spread them out
+      const regionSize = Math.floor(shuffledNames.length / numPlayers);
+      const regionStart = i * regionSize;
+      const candidates = shuffledNames.slice(regionStart, regionStart + regionSize);
+
+      // Find a starting point that's not too close to existing ones
+      let bestStart = candidates[0];
+      let bestMinDist = 0;
+
+      for (const candidate of candidates) {
+        if (startingPoints.length === 0) {
+          bestStart = candidate;
+          break;
+        }
+        // Calculate minimum "distance" (via BFS depth) to any existing start
+        let minDist = Infinity;
+        for (const existing of startingPoints) {
+          const dist = getTerritoryDistance(candidate, existing);
+          if (dist < minDist) minDist = dist;
+        }
+        if (minDist > bestMinDist) {
+          bestMinDist = minDist;
+          bestStart = candidate;
+        }
+      }
+      startingPoints.push(bestStart);
+    }
+
+    // Assign starting territories to each player
+    const assigned = new Set();
+    const playerTerritories = [];
+
+    for (let i = 0; i < numPlayers; i++) {
+      const start = startingPoints[i];
+      G.territories[start].owner = i;
+      G.territories[start].troops = 1;
+      G.setupArmies[i]--;
+      assigned.add(start);
+      playerTerritories[i] = [start];
+    }
+
+    // Grow each empire by claiming adjacent unassigned territories
+    // Use round-robin expansion so empires grow evenly
+    let unassignedCount = allNames.length - numPlayers;
+
+    while (unassignedCount > 0) {
+      for (let i = 0; i < numPlayers; i++) {
+        if (unassignedCount <= 0) break;
+
+        // Find all unassigned territories adjacent to this player's empire
+        const frontiers = [];
+        for (const tName of playerTerritories[i]) {
+          const tData = findTerritory(tName);
+          if (tData) {
+            for (const neighbor of tData.borders) {
+              if (!assigned.has(neighbor)) {
+                frontiers.push(neighbor);
+              }
+            }
+          }
+        }
+
+        if (frontiers.length > 0) {
+          // Pick a random frontier territory to claim
+          const choice = frontiers[Math.floor(Math.random() * frontiers.length)];
+          G.territories[choice].owner = i;
+          G.territories[choice].troops = 1;
+          G.setupArmies[i]--;
+          assigned.add(choice);
+          playerTerritories[i].push(choice);
+          unassignedCount--;
+        }
+      }
+
+      // Safety: if no player could expand (isolated territories), assign remaining randomly
+      const remaining = allNames.filter(n => !assigned.has(n));
+      if (remaining.length === unassignedCount && remaining.length > 0) {
+        // Check if any player expanded this round
+        let anyExpanded = false;
+        for (let i = 0; i < numPlayers; i++) {
+          const frontiers = [];
+          for (const tName of playerTerritories[i]) {
+            const tData = findTerritory(tName);
+            if (tData) {
+              for (const neighbor of tData.borders) {
+                if (!assigned.has(neighbor)) frontiers.push(neighbor);
+              }
+            }
+          }
+          if (frontiers.length > 0) anyExpanded = true;
+        }
+
+        if (!anyExpanded) {
+          // No frontiers found - assign remaining to player with fewest territories
+          for (const r of remaining) {
+            const playerIdx = playerTerritories.reduce((minIdx, arr, idx, src) =>
+              arr.length < src[minIdx].length ? idx : minIdx, 0);
+            G.territories[r].owner = playerIdx;
+            G.territories[r].troops = 1;
+            G.setupArmies[playerIdx]--;
+            assigned.add(r);
+            playerTerritories[playerIdx].push(r);
+            unassignedCount--;
+          }
+        }
+      }
+    }
+
+    // Now distribute remaining troops evenly on border territories
+    distributeEmpireTroops();
+
+    log('Empire territories assigned - contiguous empires created');
+  }
+
+  // Calculate rough "distance" between two territories using BFS
+  function getTerritoryDistance(from, to) {
+    if (from === to) return 0;
+
+    const visited = new Set([from]);
+    const queue = [{name: from, dist: 0}];
+
+    while (queue.length > 0) {
+      const current = queue.shift();
+      const tData = findTerritory(current.name);
+
+      if (tData) {
+        for (const neighbor of tData.borders) {
+          if (neighbor === to) return current.dist + 1;
+          if (!visited.has(neighbor)) {
+            visited.add(neighbor);
+            queue.push({name: neighbor, dist: current.dist + 1});
+          }
+        }
+      }
+    }
+
+    return Infinity; // Not connected (shouldn't happen on Risk map)
+  }
+
+  // Distribute remaining setup troops evenly on border territories
+  function distributeEmpireTroops() {
+    for (const player of G.players) {
+      const owned = getPlayerTerritories(player.id);
+
+      // Find border territories (those adjacent to enemy territories)
+      const borderTerritories = owned.filter(t => {
+        return getEnemyNeighbors(t.name, player.id).length > 0;
+      });
+
+      // If no border territories, use all territories
+      const targets = borderTerritories.length > 0 ? borderTerritories : owned;
+
+      // Distribute remaining setup armies evenly across border territories
+      let remaining = G.setupArmies[player.id];
+      let idx = 0;
+
+      while (remaining > 0 && targets.length > 0) {
+        const target = targets[idx % targets.length];
+        G.territories[target.name].troops += 1;
+        remaining--;
+        idx++;
+      }
+
+      G.setupArmies[player.id] = 0;
+    }
   }
 
   // Random troop placement
