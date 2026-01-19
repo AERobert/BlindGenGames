@@ -87,6 +87,18 @@
         </div>
       </header>
 
+      <!-- Visual Map for sighted players (aria-hidden) -->
+      <div id="map-container" class="map-container" aria-hidden="true">
+        <div class="map-header">
+          <h3>World Map</h3>
+          <div>
+            <button class="btn-small map-toggle-btn" onclick="toggleFullscreenMap()" title="Toggle fullscreen">Fullscreen</button>
+            <button class="btn-small map-toggle-btn" onclick="toggleMapVisibility()" title="Toggle map visibility">Hide Map</button>
+          </div>
+        </div>
+        <!-- SVG map is injected here by map.js -->
+      </div>
+
       <main class="game-main">
         <div class="territory-panel">
           <div id="current-territory" class="current-territory" tabindex="0" role="region" aria-label="Current Territory">
@@ -215,6 +227,7 @@
         <span class="key-name">C</span><span>Your cards</span>
         <span class="key-name">P</span><span>Current phase</span>
         <span class="key-name">R</span><span>Repeat last</span>
+        <span class="key-name">V</span><span>Toggle visual map</span>
         <span class="key-name">?</span><span>This help</span>
       </div>
       <h3>Card Trading</h3>
@@ -235,6 +248,7 @@
   <script src="js/sounds.js"></script>
   <script src="js/ai.js"></script>
   <script src="js/ui.js"></script>
+  <script src="js/map.js"></script>
   <script src="js/game.js"></script>
   <script>
     const { TERRITORIES, NAV_KEYS, findTerritory } = window.RiskData;
@@ -400,8 +414,53 @@
       updateStrategyCountStatus();
     });
 
-    // Connect callbacks
-    gameModule.setCallbacks(ui.updateUI, ui.showAfterActionReport, ui.showTroopInput, ui.showDiceResult);
+    // Connect callbacks - wrap updateUI to also update the map
+    const map = window.RiskMap;
+    const originalUpdateUI = ui.updateUI;
+    const enhancedUpdateUI = () => {
+      originalUpdateUI();
+      if (map) map.updateMap();
+    };
+    gameModule.setCallbacks(enhancedUpdateUI, ui.showAfterActionReport, ui.showTroopInput, ui.showDiceResult);
+    // Also patch ui.updateUI for direct calls
+    ui.updateUI = enhancedUpdateUI;
+
+    // Map toggle functions
+    function toggleMapVisibility() {
+      const mapContainer = document.getElementById('map-container');
+      const btn = mapContainer?.querySelector('.map-toggle-btn:last-child');
+      if (mapContainer) {
+        mapContainer.classList.toggle('hidden');
+        const isVisible = !mapContainer.classList.contains('hidden');
+        if (btn) btn.textContent = isVisible ? 'Hide Map' : 'Show Map';
+        localStorage.setItem('riskMapVisible', isVisible ? 'true' : 'false');
+      }
+    }
+
+    function toggleFullscreenMap() {
+      const mapContainer = document.getElementById('map-container');
+      if (mapContainer) {
+        mapContainer.classList.toggle('fullscreen');
+        const btn = mapContainer.querySelector('.map-toggle-btn:first-child');
+        if (btn) {
+          btn.textContent = mapContainer.classList.contains('fullscreen') ? 'Exit Fullscreen' : 'Fullscreen';
+        }
+      }
+    }
+
+    // Escape key exits fullscreen map
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        const mapContainer = document.getElementById('map-container');
+        if (mapContainer?.classList.contains('fullscreen')) {
+          toggleFullscreenMap();
+        }
+      }
+    });
+
+    // Make toggle functions global
+    window.toggleMapVisibility = toggleMapVisibility;
+    window.toggleFullscreenMap = toggleFullscreenMap;
 
     // Timers
     let autoSaveInterval, timerInterval;
@@ -644,6 +703,19 @@
       document.getElementById('setup-screen').classList.add('hidden');
       document.getElementById('game-screen').classList.remove('hidden');
 
+      // Initialize the visual map
+      if (map) {
+        map.createMap();
+        // Restore map visibility preference
+        const savedMapVisible = localStorage.getItem('riskMapVisible');
+        const mapContainer = document.getElementById('map-container');
+        const mapBtn = mapContainer?.querySelector('.map-toggle-btn:last-child');
+        if (savedMapVisible === 'false' && mapContainer) {
+          mapContainer.classList.add('hidden');
+          if (mapBtn) mapBtn.textContent = 'Show Map';
+        }
+      }
+
       startIntervals();
 
       if (gameMode === 'random' || gameMode === 'random-troops' || gameMode === 'empire') {
@@ -687,6 +759,17 @@
           startIntervals();
           document.getElementById('setup-screen').classList.add('hidden');
           document.getElementById('game-screen').classList.remove('hidden');
+          // Initialize the visual map
+          if (map) {
+            map.createMap();
+            const savedMapVisible = localStorage.getItem('riskMapVisible');
+            const mapContainer = document.getElementById('map-container');
+            const mapBtn = mapContainer?.querySelector('.map-toggle-btn:last-child');
+            if (savedMapVisible === 'false' && mapContainer) {
+              mapContainer.classList.add('hidden');
+              if (mapBtn) mapBtn.textContent = 'Show Map';
+            }
+          }
           ui.updateUI();
           speech.speak(`Resumed. Turn ${G.turnNumber}.`);
           // Resume AI turn if it was saved during AI's turn
@@ -1027,6 +1110,7 @@
       if (key === 'c') { ui.listCards(); return; }
       if (key === 'p') { ui.announcePhase(); return; }
       if (key === 'r') { speech.repeat(); return; }
+      if (key === 'v') { toggleMapVisibility(); return; }
       if (key === ' ' || key === 'enter' || key === 'k') {
         e.preventDefault();
         // Spacebar toggles pause when it's not human's turn or in spectator mode

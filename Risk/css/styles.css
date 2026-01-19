@@ -41,6 +41,7 @@ button:disabled { background: #666; cursor: not-allowed; }
 .game-title { margin: 0; font-size: 1.8rem; }
 .header-controls { display: flex; gap: 10px; flex-wrap: wrap; }
 .game-main { display: grid; grid-template-columns: 1fr 380px; gap: 20px; }
+@media (max-width: 1200px) { .game-main { grid-template-columns: 1fr 320px; } }
 @media (max-width: 900px) { .game-main { grid-template-columns: 1fr; } }
 
 /* Territory Panel */
@@ -124,6 +125,270 @@ button:disabled { background: #666; cursor: not-allowed; }
 .speech-settings label { display: block; font-size: 0.9rem; }
 .speech-settings select, .speech-settings input { padding: 6px; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 4px; font-size: 0.9rem; width: 100%; }
 .speech-warning { margin: 0; font-size: 0.85rem; color: #f7d28b; }
+
+/* ============== SVG MAP ============== */
+.map-container {
+  background: var(--panel);
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  padding: 10px;
+  margin-bottom: 20px;
+  position: relative;
+  overflow-x: auto; /* Allow horizontal scroll on narrow viewports */
+}
+
+.map-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.map-header h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.risk-map {
+  width: 100%;
+  height: auto;
+  min-width: 600px; /* Prevent map from getting too cramped */
+  max-height: 450px;
+  display: block;
+  border-radius: 6px;
+  background: linear-gradient(180deg, #1a4a6e 0%, #0d2840 100%);
+  touch-action: pan-x pan-y pinch-zoom;
+  -webkit-tap-highlight-color: transparent;
+  box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.3);
+}
+
+/* Territory styling */
+.territory {
+  cursor: pointer;
+  transition: fill-opacity 0.15s, stroke-width 0.15s, filter 0.15s;
+  transform-origin: center;
+}
+
+.territory:hover,
+.territory:active,
+.territory:focus {
+  fill-opacity: 1 !important;
+  stroke-width: 4;
+  filter: brightness(1.2) drop-shadow(0 0 6px rgba(255, 255, 255, 0.4));
+}
+
+/* Hover state for territory group - enlarges hit area */
+.territory-group:hover .territory {
+  fill-opacity: 1 !important;
+  stroke-width: 4;
+  filter: brightness(1.15);
+}
+
+/* Active state for touch feedback */
+.territory-group:active .territory {
+  fill-opacity: 1 !important;
+  stroke-width: 5;
+  filter: brightness(1.3) drop-shadow(0 0 8px rgba(255, 255, 255, 0.6));
+}
+
+.territory.selected {
+  stroke: #fff !important;
+  stroke-width: 4;
+  filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.5));
+}
+
+.territory.attack-source {
+  stroke: #ff4444 !important;
+  stroke-width: 4;
+  filter: drop-shadow(0 0 10px rgba(255, 68, 68, 0.7));
+  animation: pulse-attack 1s infinite;
+}
+
+.territory.fortify-source {
+  stroke: #44ff44 !important;
+  stroke-width: 4;
+  filter: drop-shadow(0 0 10px rgba(68, 255, 68, 0.7));
+  animation: pulse-fortify 1s infinite;
+}
+
+.territory.enemy-target {
+  stroke: #ffaa00 !important;
+  stroke-width: 3;
+  stroke-dasharray: 4 2;
+  animation: blink-target 0.5s infinite;
+}
+
+.territory.friendly-target {
+  stroke: #00ffaa !important;
+  stroke-width: 3;
+  stroke-dasharray: 6 3;
+  animation: pulse-friendly 1s infinite;
+}
+
+@keyframes pulse-attack {
+  0%, 100% { filter: drop-shadow(0 0 8px rgba(255, 68, 68, 0.5)); }
+  50% { filter: drop-shadow(0 0 15px rgba(255, 68, 68, 0.9)); }
+}
+
+@keyframes pulse-fortify {
+  0%, 100% { filter: drop-shadow(0 0 8px rgba(68, 255, 68, 0.5)); }
+  50% { filter: drop-shadow(0 0 15px rgba(68, 255, 68, 0.9)); }
+}
+
+@keyframes blink-target {
+  0%, 100% { stroke-opacity: 1; }
+  50% { stroke-opacity: 0.5; }
+}
+
+@keyframes pulse-friendly {
+  0%, 100% { filter: drop-shadow(0 0 6px rgba(68, 255, 170, 0.5)); }
+  50% { filter: drop-shadow(0 0 12px rgba(68, 255, 170, 0.8)); }
+}
+
+/* Troop labels - larger for better readability */
+.troop-label {
+  font-family: 'Segoe UI', sans-serif;
+  font-size: 17px;
+  font-weight: bold;
+  pointer-events: none;
+  user-select: none;
+  fill: #fff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+}
+
+.troop-label-bg {
+  pointer-events: none;
+  transition: opacity 0.2s, r 0.2s;
+}
+
+/* Enlarge label on territory hover for better visibility */
+.territory-group:hover .troop-label {
+  font-size: 19px;
+}
+
+.territory-group:hover .troop-label-bg {
+  r: 18;
+}
+
+/* Make labels clickable by moving pointer-events to group */
+.territory-group {
+  cursor: pointer;
+}
+
+.territory-group .troop-label {
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+/* Map legend */
+.legend-text {
+  font-family: 'Segoe UI', sans-serif;
+  user-select: none;
+}
+
+/* Map toggle button */
+.map-toggle-btn {
+  padding: 4px 8px;
+  font-size: 0.85rem;
+}
+
+/* Map zoom controls */
+.map-controls {
+  position: absolute;
+  top: 45px;
+  right: 15px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  z-index: 10;
+}
+
+.map-controls button {
+  padding: 5px 10px;
+  font-size: 0.9rem;
+  min-width: 35px;
+}
+
+/* Touch-friendly: larger touch targets on mobile */
+@media (max-width: 768px) {
+  .risk-map {
+    max-height: 350px;
+    min-width: 500px; /* Still scrollable but slightly smaller minimum */
+  }
+
+  .territory {
+    stroke-width: 3;
+  }
+
+  .troop-label {
+    font-size: 15px;
+  }
+
+  .troop-label-bg {
+    r: 14;
+  }
+
+  .map-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
+@media (max-width: 500px) {
+  .map-container {
+    padding: 8px;
+  }
+
+  .risk-map {
+    max-height: 300px;
+    min-width: 450px; /* Smaller minimum for very narrow screens */
+  }
+
+  .troop-label {
+    font-size: 14px;
+  }
+
+  .troop-label-bg {
+    r: 12;
+  }
+
+  .map-toggle-btn {
+    padding: 6px 10px;
+    font-size: 0.8rem;
+  }
+}
+
+/* Very narrow viewport - show scroll hint */
+@media (max-width: 400px) {
+  .map-container::after {
+    content: '← Scroll to see full map →';
+    display: block;
+    text-align: center;
+    font-size: 0.75rem;
+    color: #888;
+    padding-top: 5px;
+  }
+}
+
+/* Fullscreen map option */
+.map-container.fullscreen {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 999;
+  margin: 0;
+  border-radius: 0;
+  padding: 20px;
+}
+
+.map-container.fullscreen .risk-map {
+  max-height: calc(100vh - 100px);
+  height: calc(100vh - 100px);
+}
 
 /* Utils */
 .hidden { display: none !important; }
