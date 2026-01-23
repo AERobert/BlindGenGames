@@ -13,6 +13,9 @@
   let showTroopInput = () => {};
   let showDiceResult = () => {};
 
+  // Multiplayer broadcast callback (set by main.js)
+  let broadcastAction = () => {};
+
   const COUNTRY_NAME_PARTS = {
     adjectives: [
       'United', 'People\'s', 'Royal', 'Free', 'Grand', 'New', 'Old', 'Northern', 'Southern', 'Eastern', 'Western',
@@ -66,8 +69,9 @@
     return buildCountryName();
   }
 
-  function setCallbacks(ui, report, troop, dice) {
+  function setCallbacks(ui, report, troop, dice, broadcast = null) {
     updateUI = ui; showReport = report; showTroopInput = troop; showDiceResult = dice;
+    if (broadcast) broadcastAction = broadcast;
   }
 
   // Initialize players
@@ -385,11 +389,12 @@
 
   function startSetupReinforce() {
     G.phase = 'setup-reinforce'; G.currentPlayer = 0;
+    G.setupTroopsPlacedThisRound = 0;  // Initialize round counter
     if (!Object.values(G.setupArmies).some(a => a > 0)) { startMainGame(); return; }
     while (G.setupArmies[G.currentPlayer] <= 0) G.currentPlayer = (G.currentPlayer + 1) % G.players.length;
     G.currentTerritoryIdx = TERRITORIES.findIndex(t => G.territories[t.name].owner === G.currentPlayer);
     updateUI();
-    speech.speak(`Setup. ${currentPlayer().name}, place armies. ${G.setupArmies[currentPlayer().id]} remaining.`);
+    speech.speak(`Setup. ${currentPlayer().name}, place armies. ${G.setupArmies[currentPlayer().id]} remaining. Place up to 3 this round.`);
     if (!currentPlayer().isHuman) setTimeout(aiTurn, G.aiDelay);
   }
 
@@ -398,9 +403,10 @@
     while (checked < G.players.length) { if (G.setupArmies[next] > 0) break; next = (next + 1) % G.players.length; checked++; }
     if (checked >= G.players.length) { startMainGame(); return; }
     G.currentPlayer = next;
+    G.setupTroopsPlacedThisRound = 0;  // Reset counter for new player's round
     updateUI();
     if (!currentPlayer().isHuman) setTimeout(aiTurn, G.aiDelay / 2);
-    else speech.speak(`${currentPlayer().name}'s turn. ${G.setupArmies[currentPlayer().id]} armies to place.`);
+    else speech.speak(`${currentPlayer().name}'s turn. ${G.setupArmies[currentPlayer().id]} armies to place. Up to 3 this round.`);
   }
 
   function startMainGame() {
@@ -624,6 +630,16 @@
     G.territories[choice.name].owner = player.id; G.territories[choice.name].troops = 1; G.setupArmies[player.id]--;
     log(`${player.name} claims ${choice.name}`);
     speech.speak(`${player.name} claims ${choice.name}.`);
+
+    // Broadcast in multiplayer
+    if (G.multiplayerMode) {
+      broadcastAction('claim', {
+        territory: choice.name,
+        playerId: player.id,
+        playerName: player.name
+      });
+    }
+
     scheduleAI(() => {
       G.currentPlayer = (G.currentPlayer + 1) % G.players.length;
       if (TERRITORIES.filter(t => G.territories[t.name].owner === null).length === 0) startSetupReinforce();
@@ -640,8 +656,24 @@
     const amount = Math.min(3, G.setupArmies[player.id]);
     G.territories[choice.name].troops += amount;
     G.setupArmies[player.id] -= amount;
+    G.setupTroopsPlacedThisRound = amount;  // AI places all at once, always completing round
     log(`${player.name} places ${amount} on ${choice.name} (${G.setupArmies[player.id]} left)`);
     speech.speak(`${player.name} places ${amount} on ${choice.name}. ${G.setupArmies[player.id]} remaining.`);
+
+    // Broadcast in multiplayer - include turnComplete flag
+    if (G.multiplayerMode) {
+      broadcastAction('place', {
+        territory: choice.name,
+        amount: amount,
+        playerId: player.id,
+        playerName: player.name,
+        phase: 'setup-reinforce',
+        remaining: G.setupArmies[player.id],
+        setupTroopsPlacedThisRound: G.setupTroopsPlacedThisRound,
+        turnComplete: true
+      });
+    }
+
     scheduleAI(nextSetupPlayer, G.aiDelay / 3);
   }
 
@@ -657,6 +689,16 @@
           ann += ` plus ${result.territoryBonuses.length * 2} on ${result.territoryBonuses.join(', ')}`;
         }
         speech.speak(ann + '.');
+
+        // Broadcast trade in multiplayer
+        if (G.multiplayerMode) {
+          broadcastAction('trade', {
+            playerId: player.id,
+            playerName: player.name,
+            value: result.value,
+            territoryBonuses: result.territoryBonuses
+          });
+        }
       }
     }
     const gameInterface = createGameInterface();
@@ -667,12 +709,35 @@
         G.territories[p.territory].troops += p.amount;
         log(`${player.name} places ${p.amount} on ${p.territory}`);
         placementSummary.push(`${p.amount} on ${p.territory}`);
+
+        // Broadcast each placement in multiplayer
+        if (G.multiplayerMode) {
+          broadcastAction('place', {
+            territory: p.territory,
+            amount: p.amount,
+            playerId: player.id,
+            playerName: player.name,
+            phase: 'reinforce',
+            remaining: 0
+          });
+        }
       }
     }
     if (placementSummary.length > 0) {
       speech.speak(`${player.name} places ${placementSummary.join(', ')}.`);
     }
     G.armiesToPlace = 0;
+
+    // Broadcast phase transition in multiplayer
+    if (G.multiplayerMode) {
+      broadcastAction('endPhase', {
+        phase: 'reinforce',
+        nextPhase: 'attack',
+        playerId: player.id,
+        playerName: player.name
+      });
+    }
+
     updateUI();
     scheduleAI(startAttackPhase, G.aiDelay);
   }
@@ -680,17 +745,42 @@
   function aiAttack(player, strategy) {
     if (G.paused) { G.pendingAIAction = { action: () => aiAttack(player, strategy), delay: 0 }; return; }
     const attacks = strategy.attack(createGameInterface(), player);
-    if (attacks.length === 0) { scheduleAI(startFortifyPhase, G.aiDelay / 2); return; }
+    if (attacks.length === 0) {
+      // Broadcast phase transition in multiplayer
+      if (G.multiplayerMode) {
+        broadcastAction('endPhase', {
+          phase: 'attack',
+          nextPhase: 'fortify',
+          playerId: player.id,
+          playerName: player.name
+        });
+      }
+      scheduleAI(startFortifyPhase, G.aiDelay / 2);
+      return;
+    }
     executeAiAttacks(player, attacks, 0);
   }
 
   function executeAiAttacks(player, attacks, index) {
     if (G.paused) { G.pendingAIAction = { action: () => executeAiAttacks(player, attacks, index), delay: 0 }; return; }
-    if (index >= attacks.length) { scheduleAI(startFortifyPhase, G.aiDelay / 2); return; }
+    if (index >= attacks.length) {
+      // Broadcast phase transition in multiplayer
+      if (G.multiplayerMode) {
+        broadcastAction('endPhase', {
+          phase: 'attack',
+          nextPhase: 'fortify',
+          playerId: player.id,
+          playerName: player.name
+        });
+      }
+      scheduleAI(startFortifyPhase, G.aiDelay / 2);
+      return;
+    }
     const attack = attacks[index];
     const from = G.territories[attack.from], to = G.territories[attack.to];
     if (from.owner !== player.id || to.owner === player.id || from.troops <= 1) { executeAiAttacks(player, attacks, index + 1); return; }
     const defender = G.players[to.owner];
+    const defenderId = to.owner;
     log(`${player.name} attacks ${attack.to} from ${attack.from}`);
     speech.speak(`${player.name} attacks ${attack.to} from ${attack.from}.`);
     G.stats.attacks[player.id]++;
@@ -713,11 +803,16 @@
         sounds.play('victory');
         speech.speak(`${player.name} conquers ${attack.to}! ${toMove} troops moved in.`);
         checkContinentControl();
+
+        let defenderEliminated = false;
+        let cardsTransferred = false;
         const defT = Object.values(G.territories).filter(t => t.owner === oldOwner);
         if (defT.length === 0 && oldOwner !== null) {
+          defenderEliminated = true;
           const defPlayer = G.players[oldOwner];
           defPlayer.eliminated = true; G.stats.eliminated[oldOwner] = G.turnNumber;
           if (defPlayer.cards.length > 0) {
+            cardsTransferred = true;
             player.cards.push(...defPlayer.cards);
             defPlayer.cards = [];
             speech.speak(`${defPlayer.name} eliminated! ${player.name} captures cards.`);
@@ -733,10 +828,47 @@
             log('Game continues in spectator mode', true);
           }
         }
+
+        // Broadcast attack in multiplayer
+        if (G.multiplayerMode) {
+          broadcastAction('attack', {
+            from: attack.from,
+            to: attack.to,
+            result: result,
+            playerName: player.name,
+            attackerId: player.id,
+            defenderId: defenderId,
+            conquered: true,
+            fromTroops: from.troops,
+            toTroops: to.troops,
+            toOwner: player.id,
+            defenderEliminated,
+            cardsTransferred
+          });
+        }
+
         if (checkVictory() !== null) { endGame(checkVictory()); return; }
         updateUI();
         scheduleAI(() => executeAiAttacks(player, attacks, index + 1), G.aiDelay / 2);
-      } else { updateUI(); scheduleAI(doAttack, 150); }
+      } else {
+        // Broadcast non-conquering attack in multiplayer
+        if (G.multiplayerMode) {
+          broadcastAction('attack', {
+            from: attack.from,
+            to: attack.to,
+            result: result,
+            playerName: player.name,
+            attackerId: player.id,
+            defenderId: defenderId,
+            conquered: false,
+            fromTroops: from.troops,
+            toTroops: to.troops,
+            toOwner: to.owner
+          });
+        }
+
+        updateUI(); scheduleAI(doAttack, 150);
+      }
     };
     sounds.play('attack');
     doAttack();
@@ -752,10 +884,35 @@
         log(`${player.name} moves ${fortify.amount} from ${fortify.from} to ${fortify.to}`);
         sounds.play('fortify');
         speech.speak(`${player.name} moves ${fortify.amount} from ${fortify.from} to ${fortify.to}.`);
+
+        // Broadcast fortify in multiplayer
+        if (G.multiplayerMode) {
+          broadcastAction('fortify', {
+            from: fortify.from,
+            to: fortify.to,
+            amount: fortify.amount,
+            playerId: player.id,
+            playerName: player.name
+          });
+        }
       }
     }
     updateUI();
-    scheduleAI(nextPlayer, G.aiDelay);
+
+    // Broadcast next player transition in multiplayer (will be sent after nextPlayer runs)
+    const currentIdx = G.currentPlayer;
+    scheduleAI(() => {
+      nextPlayer();
+      if (G.multiplayerMode && G.phase !== 'gameover') {
+        broadcastAction('nextPlayer', {
+          previousPlayer: currentIdx,
+          nextPlayer: G.currentPlayer,
+          turnNumber: G.turnNumber,
+          newTurn: G.currentPlayer <= currentIdx,
+          armies: G.armiesToPlace
+        });
+      }
+    }, G.aiDelay);
   }
 
   function createGameInterface() {

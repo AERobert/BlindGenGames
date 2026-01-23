@@ -103,3 +103,8 @@ $RECYCLE.BIN/
 *.msm
 *.msp
 *.txz
+
+# Node.js
+node_modules/
+npm-debug.log
+

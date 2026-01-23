@@ -44,9 +44,16 @@
       const territories = getPlayerTerritories(player.id);
       const troops = territories.reduce((sum, t) => sum + G.territories[t.name].troops, 0);
       const li = document.createElement('li');
+      li.setAttribute('role', 'listitem');
       const strategyLabel = player.strategyName || player.strategy;
-      li.innerHTML = `<span class="player-indicator" style="background:${player.color}"></span><span>${player.name}${player.isHuman ? '' : ` (${strategyLabel})`}</span><span style="margin-left:auto">${territories.length}T/${troops}A</span>`;
-      if (player.id === G.currentPlayer) li.classList.add('current');
+      const isCurrent = player.id === G.currentPlayer;
+      const isYou = G.multiplayerMode ? (player.isHuman && !player.isRemote) : (player.id === G.humanPlayerId);
+      const youLabel = isYou ? ' (You)' : '';
+      const currentLabel = isCurrent ? ' - Current turn' : '';
+      const eliminatedLabel = player.eliminated ? ' - Eliminated' : '';
+      li.innerHTML = `<span class="player-indicator" style="background:${player.color}" aria-hidden="true"></span><span>${player.name}${youLabel}${player.isHuman ? '' : ` (${strategyLabel})`}</span><span style="margin-left:auto">${territories.length}T/${troops}A</span>`;
+      li.setAttribute('aria-label', `${player.name}${youLabel}${player.isHuman ? '' : `, ${strategyLabel}`}, ${territories.length} territories, ${troops} armies${currentLabel}${eliminatedLabel}`);
+      if (isCurrent) li.classList.add('current');
       if (player.eliminated) li.classList.add('eliminated');
       list.appendChild(li);
     }
@@ -97,7 +104,18 @@
     if (!el) return;
     el.innerHTML = '';
     const player = currentPlayer();
-    if (!player?.isHuman && !G.spectatorMode) return;
+    if (!player) return;
+
+    // In multiplayer, only show actions if it's my turn
+    const isMyTurn = G.multiplayerMode ? (player.isHuman && !player.isRemote) : player.isHuman;
+    if (!isMyTurn && !G.spectatorMode) {
+      // Show waiting message for other player's turn
+      if (G.multiplayerMode && player.isHuman && player.isRemote) {
+        el.innerHTML = `<span style="color:#4ecca3">Waiting for ${player.name} to play...</span>`;
+      }
+      return;
+    }
+
     const btns = {
       'claim': '<button onclick="game.claimTerritory()">Claim (Space)</button>',
       'setup-reinforce': '<button onclick="game.placeArmy()">Place Armies (Space)</button>',

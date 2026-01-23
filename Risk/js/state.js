@@ -19,6 +19,7 @@
     attackFrom: null,
     fortifyFrom: null,
     setupArmies: {},
+    setupTroopsPlacedThisRound: 0,  // Track troops placed in current setup round (max 3)
     currentTerritoryIdx: 0,
     startTime: null,
     endTime: null,
@@ -26,7 +27,9 @@
     gameMode: 'manual',
     spectatorMode: false,
     paused: false,
-    stats: {}
+    stats: {},
+    // Multiplayer properties
+    multiplayerMode: false
   };
 
   // Game log
@@ -48,6 +51,7 @@
     G.attackFrom = null;
     G.fortifyFrom = null;
     G.setupArmies = {};
+    G.setupTroopsPlacedThisRound = 0;
     G.currentTerritoryIdx = 0;
     G.startTime = null;
     G.endTime = null;
@@ -55,6 +59,7 @@
     G.spectatorMode = false;
     G.paused = false;
     G.stats = {};
+    G.multiplayerMode = false;
     gameLog.length = 0;
   }
 

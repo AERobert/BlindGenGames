@@ -82,17 +82,22 @@
 
   // Populate dropdowns
   function populateSelectors() {
-    for (const id of ['voice-select', 'game-voice-select']) {
-      const sel = document.getElementById(id);
-      if (!sel) continue;
-      sel.innerHTML = '';
-      for (const v of voices) {
-        const opt = document.createElement('option');
-        opt.value = v.name;
-        opt.textContent = `${v.name} (${v.lang})`;
-        if (v.name === voiceName) opt.selected = true;
-        sel.appendChild(opt);
-      }
+    for (const id of ['voice-select', 'game-voice-select', 'lobby-voice-select']) {
+      populateVoiceSelect(id);
+    }
+  }
+
+  // Populate a specific voice select element
+  function populateVoiceSelect(selectId) {
+    const sel = document.getElementById(selectId);
+    if (!sel) return;
+    sel.innerHTML = '';
+    for (const v of voices) {
+      const opt = document.createElement('option');
+      opt.value = v.name;
+      opt.textContent = `${v.name} (${v.lang})`;
+      if (v.name === voiceName) opt.selected = true;
+      sel.appendChild(opt);
     }
   }
 
@@ -246,6 +251,7 @@
     getRate,
     getVoiceName,
     getSettings,
-    restoreSettings
+    restoreSettings,
+    populateVoiceSelect
   };
 })();

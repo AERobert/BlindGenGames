@@ -8,6 +8,7 @@
 </head>
 <body>
   <a href="#current-territory" class="skip-link">Skip to game</a>
+  <a href="#game-info-panel" class="skip-link">Skip to game info</a>
   <div id="live-region" aria-live="assertive" aria-atomic="true" class="sr-only"></div>
 
   <div class="container">
@@ -27,7 +28,18 @@
         <option value="5">5 Players</option>
         <option value="6">6 Players</option>
       </select>
-      
+
+      <label for="num-humans">Human Players:</label>
+      <select id="num-humans">
+        <option value="1" selected>1 (Solo + AI)</option>
+        <option value="2">2 (Multiplayer)</option>
+        <option value="3">3 (Multiplayer)</option>
+        <option value="4">4 (Multiplayer)</option>
+        <option value="5">5 (Multiplayer)</option>
+        <option value="6">6 (Multiplayer)</option>
+      </select>
+      <p id="multiplayer-note" class="hidden" style="font-size:0.85rem; color:#4ecca3; margin-top:0.3rem;">Multiplayer mode requires a server. Start with: npm start</p>
+
       <label for="game-mode">Game Mode:</label>
       <select id="game-mode">
         <option value="manual">Manual Claiming</option>
@@ -65,10 +77,57 @@
         <label class="checkbox-label"><input type="checkbox" id="sound-effects" checked> Sound Effects</label>
       </div>
       
+      <div id="available-games" class="setup-section hidden">
+        <h3>Join Multiplayer Game</h3>
+        <div id="games-list" class="games-list">
+          <p class="no-games">No games available. Create one or wait for others.</p>
+        </div>
+        <button class="btn-secondary" onclick="game.refreshGames()">Refresh Games</button>
+      </div>
+
+      <div id="multiplayer-name-section" class="hidden">
+        <label for="game-name">Game Name:</label>
+        <input type="text" id="game-name" placeholder="My Risk Game" maxlength="50">
+      </div>
+
       <div style="margin-top:20px; display:flex; gap:10px; flex-wrap:wrap">
-        <button onclick="game.startGame()">Start Game</button>
+        <button id="start-btn" onclick="game.startGame()">Start Game</button>
+        <button id="create-lobby-btn" class="hidden" onclick="game.createLobby()">Create Lobby</button>
         <button id="resume-btn" class="btn-secondary hidden" onclick="game.resumeGame()">Resume Saved</button>
         <button class="btn-secondary" onclick="game.showHelp()">Help (?)</button>
+      </div>
+    </div>
+
+    <!-- MULTIPLAYER LOBBY SCREEN -->
+    <div id="lobby-screen" class="setup-screen hidden">
+      <h1>Game Lobby</h1>
+      <h2 id="lobby-game-name">Waiting for Players...</h2>
+      <p id="lobby-status">Waiting for players to join</p>
+
+      <div class="lobby-info">
+        <div id="lobby-players" class="lobby-players">
+          <!-- Player slots will be filled here -->
+        </div>
+      </div>
+
+      <div id="lobby-settings" class="setup-section">
+        <h3>Your Settings (local only)</h3>
+        <div class="setup-section">
+          <label for="lobby-voice-select">Voice:</label>
+          <select id="lobby-voice-select"></select>
+          <label for="lobby-speech-rate">Speech Rate: <span id="lobby-rate-value">1.2</span></label>
+          <input type="range" id="lobby-speech-rate" min="0.5" max="4" step="0.1" value="1.2" oninput="document.getElementById('lobby-rate-value').textContent=this.value">
+        </div>
+        <div class="setup-section">
+          <label for="lobby-ai-delay">AI Delay: <span id="lobby-delay-value">2</span>s</label>
+          <input type="range" id="lobby-ai-delay" min="0" max="5" step="0.1" value="2" oninput="document.getElementById('lobby-delay-value').textContent=parseFloat(this.value).toFixed(1)">
+          <label class="checkbox-label"><input type="checkbox" id="lobby-sound-effects" checked> Sound Effects</label>
+        </div>
+      </div>
+
+      <div style="margin-top:20px; display:flex; gap:10px; flex-wrap:wrap">
+        <button id="lobby-start-btn" onclick="game.startMultiplayerGame()" disabled>Start Game (Host Only)</button>
+        <button class="btn-secondary" onclick="game.leaveLobby()">Leave Lobby</button>
       </div>
     </div>
 
@@ -122,16 +181,17 @@
           <section id="phase-actions" aria-label="Phase actions"></section>
         </div>
 
-        <aside class="side-panel">
-          <div class="info-panel">
+        <aside class="side-panel" role="complementary" aria-label="Game information">
+          <section id="game-info-panel" class="info-panel" tabindex="0" role="region" aria-label="Game status and player information">
+            <h2 class="sr-only">Game Status</h2>
             <div class="turn-info">
-              <div>Turn: <strong id="turn-number">1</strong> | Phase: <span id="current-phase" class="phase-indicator">setup</span></div>
-              <div>Current: <span id="current-player-name">-</span></div>
-              <div id="armies-to-place" class="hidden"></div>
+              <div id="turn-status" role="status" aria-live="polite">Turn: <strong id="turn-number">1</strong> | Phase: <span id="current-phase" class="phase-indicator">setup</span></div>
+              <div id="current-player-info" role="status">Current Player: <span id="current-player-name">-</span></div>
+              <div id="armies-to-place" class="hidden" role="status"></div>
             </div>
-            <h3>Players</h3>
-            <ul id="player-list" class="player-list"></ul>
-          </div>
+            <h3 id="players-heading">Players</h3>
+            <ul id="player-list" class="player-list" role="list" aria-labelledby="players-heading"></ul>
+          </section>
 
           <div class="info-panel">
             <h3>Continents</h3>
@@ -227,6 +287,7 @@
         <span class="key-name">C</span><span>Your cards</span>
         <span class="key-name">P</span><span>Current phase</span>
         <span class="key-name">R</span><span>Repeat last</span>
+        <span class="key-name">S</span><span>Game status (focus info panel)</span>
         <span class="key-name">V</span><span>Toggle visual map</span>
         <span class="key-name">?</span><span>This help</span>
       </div>
@@ -249,6 +310,7 @@
   <script src="js/ai.js"></script>
   <script src="js/ui.js"></script>
   <script src="js/map.js"></script>
+  <script src="js/network.js"></script>
   <script src="js/game.js"></script>
   <script>
     const { TERRITORIES, NAV_KEYS, findTerritory } = window.RiskData;
@@ -412,7 +474,924 @@
     // Handle game mode changes
     document.getElementById('game-mode')?.addEventListener('change', () => {
       updateStrategyCountStatus();
+      updateHumanPlayersOptions();
     });
+
+    // ====== MULTIPLAYER SETUP ======
+    const network = window.RiskNetwork;
+    let multiplayerMode = false;
+    let myAssignedPlayerIndex = null;
+    let pendingGameConfig = null;
+    let playerAssignments = {}; // Maps clientId -> playerIndex
+
+    function updateHumanPlayersOptions() {
+      const numPlayers = parseInt(document.getElementById('num-players').value);
+      const gameMode = document.getElementById('game-mode').value;
+      const humanSelect = document.getElementById('num-humans');
+      const multiplayerNote = document.getElementById('multiplayer-note');
+      const startBtn = document.getElementById('start-btn');
+      const createLobbyBtn = document.getElementById('create-lobby-btn');
+      const gameNameSection = document.getElementById('multiplayer-name-section');
+      const availableGames = document.getElementById('available-games');
+
+      // Disable human players selector in spectator mode
+      if (gameMode === 'spectator') {
+        humanSelect.value = '1';
+        humanSelect.disabled = true;
+        multiplayerNote.classList.add('hidden');
+        startBtn.classList.remove('hidden');
+        createLobbyBtn.classList.add('hidden');
+        gameNameSection.classList.add('hidden');
+        availableGames.classList.add('hidden');
+        multiplayerMode = false;
+        return;
+      }
+
+      humanSelect.disabled = false;
+
+      // Update options to match player count
+      humanSelect.innerHTML = '';
+      for (let i = 1; i <= numPlayers; i++) {
+        const option = document.createElement('option');
+        option.value = i;
+        option.textContent = i === 1 ? '1 (Solo + AI)' : `${i} (Multiplayer)`;
+        humanSelect.appendChild(option);
+      }
+
+      // Keep previous selection if valid
+      const currentHumans = parseInt(humanSelect.value) || 1;
+      if (currentHumans <= numPlayers) {
+        humanSelect.value = currentHumans;
+      }
+
+      updateMultiplayerUI();
+    }
+
+    function updateMultiplayerUI() {
+      const numHumans = parseInt(document.getElementById('num-humans').value);
+      const multiplayerNote = document.getElementById('multiplayer-note');
+      const startBtn = document.getElementById('start-btn');
+      const createLobbyBtn = document.getElementById('create-lobby-btn');
+      const gameNameSection = document.getElementById('multiplayer-name-section');
+
+      multiplayerMode = numHumans > 1;
+
+      if (multiplayerMode) {
+        multiplayerNote.classList.remove('hidden');
+        startBtn.classList.add('hidden');
+        createLobbyBtn.classList.remove('hidden');
+        gameNameSection.classList.remove('hidden');
+
+        // Set default game name
+        const gameName = document.getElementById('game-name');
+        if (!gameName.value) {
+          const numPlayers = parseInt(document.getElementById('num-players').value);
+          const aiPlayers = numPlayers - numHumans;
+          const timestamp = new Date().toLocaleTimeString();
+          gameName.value = `Risk ${numHumans}H ${aiPlayers}AI ${timestamp}`;
+        }
+
+        // Try to connect and get games list
+        connectToServer();
+      } else {
+        multiplayerNote.classList.add('hidden');
+        startBtn.classList.remove('hidden');
+        createLobbyBtn.classList.add('hidden');
+        gameNameSection.classList.add('hidden');
+      }
+
+      updateStrategyCountStatus();
+    }
+
+    function getRequiredAICountMultiplayer() {
+      const numPlayers = parseInt(document.getElementById('num-players').value);
+      const numHumans = parseInt(document.getElementById('num-humans').value);
+      const gameMode = document.getElementById('game-mode').value;
+      if (gameMode === 'spectator') return numPlayers;
+      return numPlayers - numHumans;
+    }
+
+    // Override getRequiredAICount for multiplayer
+    const originalGetRequiredAICount = getRequiredAICount;
+    getRequiredAICount = function() {
+      if (multiplayerMode) {
+        return getRequiredAICountMultiplayer();
+      }
+      return originalGetRequiredAICount();
+    };
+
+    // Handle human players change
+    document.getElementById('num-humans')?.addEventListener('change', () => {
+      updateMultiplayerUI();
+    });
+
+    document.getElementById('num-players')?.addEventListener('change', () => {
+      updateHumanPlayersOptions();
+    });
+
+    // Connect to multiplayer server
+    function connectToServer() {
+      if (network.isConnected()) {
+        network.getGames();
+        return;
+      }
+
+      network.connect(
+        () => {
+          console.log('Connected to multiplayer server');
+          speech.speak('Connected to server.');
+        },
+        (error) => {
+          console.error('Failed to connect:', error);
+          // Don't announce error repeatedly
+        }
+      );
+    }
+
+    // Setup network callbacks
+    network.setCallback('onConnected', (clientId, games) => {
+      console.log('Connected with ID:', clientId);
+      updateGamesList(games);
+    });
+
+    network.setCallback('onGamesList', (games) => {
+      updateGamesList(games);
+    });
+
+    network.setCallback('onGameCreated', (game, playerIndex) => {
+      myAssignedPlayerIndex = playerIndex;
+      showLobbyScreen(game, true);
+    });
+
+    network.setCallback('onGameJoined', (game, playerIndex) => {
+      myAssignedPlayerIndex = playerIndex;
+      showLobbyScreen(game, false);
+    });
+
+    network.setCallback('onPlayerJoined', (playerName, clientId, game) => {
+      speech.speak(`${playerName} joined the game.`);
+      log(`${playerName} joined the game`);
+      updateLobbyPlayers(game);
+    });
+
+    network.setCallback('onPlayerLeft', (playerName, clientId, game) => {
+      speech.speak(`${playerName} left the game.`);
+      log(`${playerName} left the game`);
+      if (game) {
+        updateLobbyPlayers(game);
+      }
+    });
+
+    network.setCallback('onGameRejoined', (game, playerIndex, gameState) => {
+      myAssignedPlayerIndex = playerIndex;
+      speech.speak(`Rejoined game as player ${playerIndex + 1}.`);
+      log(`Rejoined game ${game.name}`);
+      rejoinMultiplayerGame(game, playerIndex, gameState);
+    });
+
+    network.setCallback('onPlayerRejoined', (playerName, clientId, playerIndex, game) => {
+      speech.speak(`${playerName} has reconnected.`);
+      log(`${playerName} reconnected`);
+      // Update the player as connected in our local state
+      if (G.players && G.players[playerIndex]) {
+        G.players[playerIndex].isRemote = true;
+        G.players[playerIndex].connected = true;
+      }
+      ui.updateUI();
+    });
+
+    network.setCallback('onGameStarted', (game, initialState, assignments) => {
+      playerAssignments = assignments;
+      startMultiplayerGameFromServer(game, initialState, assignments);
+    });
+
+    network.setCallback('onGameAction', (action, data, fromClientId, fromPlayerName) => {
+      handleRemoteAction(action, data, fromClientId, fromPlayerName);
+    });
+
+    network.setCallback('onSyncState', (state, fromClientId) => {
+      handleRemoteStateSync(state, fromClientId);
+    });
+
+    network.setCallback('onError', (message) => {
+      speech.speak(`Error: ${message}`);
+    });
+
+    network.setCallback('onDisconnected', () => {
+      speech.speak('Disconnected from server.');
+    });
+
+    // Update games list UI
+    function updateGamesList(games) {
+      const container = document.getElementById('games-list');
+      const section = document.getElementById('available-games');
+      if (!container) return;
+
+      // Always show the section when connected to server
+      if (section && network.isConnected()) {
+        section.classList.remove('hidden');
+      }
+
+      if (!games || games.length === 0) {
+        container.innerHTML = '<p class="no-games">No games available. Create one to start, or wait for others.</p>';
+        return;
+      }
+
+      container.innerHTML = '';
+      for (const game of games) {
+        const div = document.createElement('div');
+        div.className = 'game-item';
+        div.setAttribute('role', 'listitem');
+
+        // Check if this is a game that can be rejoined (in progress with disconnected slots)
+        const isRejoinable = game.canRejoin && game.status === 'playing';
+        const statusText = isRejoinable
+          ? `In progress - ${game.openSlots.length} slot(s) open`
+          : `${game.currentPlayers}/${game.humanPlayers} humans, ${game.aiPlayers} AI`;
+
+        if (isRejoinable) {
+          // Show rejoin button(s) for each open slot
+          const slotsHtml = game.openSlots.map(slot =>
+            `<button onclick="game.rejoinGameSlot('${game.id}', ${slot.playerIndex})" aria-label="Rejoin game ${game.name} as ${slot.playerName}">Rejoin as ${slot.playerName}</button>`
+          ).join('');
+          div.innerHTML = `
+            <div class="game-item-info">
+              <div class="game-item-name">${game.name} <span class="game-status-badge">In Progress</span></div>
+              <div class="game-item-details">${statusText}</div>
+            </div>
+            <div class="game-item-actions">${slotsHtml}</div>
+          `;
+        } else {
+          div.innerHTML = `
+            <div class="game-item-info">
+              <div class="game-item-name">${game.name}</div>
+              <div class="game-item-details">${statusText}</div>
+            </div>
+            <button onclick="game.joinGameLobby('${game.id}')" aria-label="Join game ${game.name}">Join</button>
+          `;
+        }
+        container.appendChild(div);
+      }
+    }
+
+    // Show lobby screen
+    function showLobbyScreen(game, isHost) {
+      document.getElementById('setup-screen').classList.add('hidden');
+      document.getElementById('lobby-screen').classList.remove('hidden');
+
+      document.getElementById('lobby-game-name').textContent = game.name;
+
+      const startBtn = document.getElementById('lobby-start-btn');
+      if (isHost) {
+        startBtn.disabled = !game.currentPlayers || game.currentPlayers < game.humanPlayers;
+        startBtn.textContent = game.currentPlayers >= game.humanPlayers
+          ? 'Start Game'
+          : `Waiting for ${game.humanPlayers - game.currentPlayers} more players...`;
+      } else {
+        startBtn.disabled = true;
+        startBtn.textContent = 'Waiting for host to start...';
+      }
+
+      updateLobbyPlayers(game);
+
+      // Apply voice settings to lobby
+      speech.populateVoiceSelect('lobby-voice-select');
+      const savedPrefs = loadPreferences();
+      if (savedPrefs?.voiceName) {
+        setTimeout(() => speech.setVoice(savedPrefs.voiceName), 300);
+      }
+    }
+
+    // Update lobby players display
+    function updateLobbyPlayers(game) {
+      const container = document.getElementById('lobby-players');
+      if (!container) return;
+
+      const { PLAYER_COLORS } = window.RiskData;
+      container.innerHTML = '';
+
+      // Create all player slots
+      for (let i = 0; i < game.totalPlayers; i++) {
+        const div = document.createElement('div');
+
+        // Find if this slot is filled by a human
+        const humanPlayer = game.players.find(p => p.playerIndex === i);
+        const isAI = i >= game.humanPlayers;
+        const isMe = humanPlayer && myAssignedPlayerIndex === i;
+
+        div.className = 'lobby-player-slot';
+        if (humanPlayer) div.classList.add('filled');
+        else if (isAI) div.classList.add('ai');
+        else div.classList.add('empty');
+        if (isMe) div.classList.add('you');
+
+        const color = PLAYER_COLORS[i];
+        div.innerHTML = `
+          <div class="lobby-player-color" style="background:${color.hex}"></div>
+          <div class="lobby-player-name">
+            ${humanPlayer ? humanPlayer.name : (isAI ? 'AI Player' : 'Waiting...')}
+          </div>
+          <div class="lobby-player-status">
+            ${color.name} - ${isMe ? '(You)' : (humanPlayer ? 'Ready' : (isAI ? 'Computer' : 'Empty'))}
+          </div>
+        `;
+        container.appendChild(div);
+      }
+
+      // Update start button
+      const startBtn = document.getElementById('lobby-start-btn');
+      const isHost = network.getIsHost();
+      if (isHost) {
+        const ready = game.currentPlayers >= game.humanPlayers;
+        startBtn.disabled = !ready;
+        startBtn.textContent = ready ? 'Start Game' : `Waiting (${game.currentPlayers}/${game.humanPlayers})...`;
+      }
+
+      document.getElementById('lobby-status').textContent =
+        `${game.currentPlayers}/${game.humanPlayers} human players joined`;
+    }
+
+    // Create a new game lobby
+    function createLobby() {
+      ensureSpeechReady();
+
+      if (!isStrategySelectionValid()) {
+        const requiredAI = getRequiredAICount();
+        speech.speak(`Please assign exactly ${requiredAI} AI strategies before creating the lobby.`);
+        return;
+      }
+
+      const playerName = playerNameInput?.value.trim() || playerNameInput?.dataset.generatedName || gameModule.generateCountryName();
+      const gameName = document.getElementById('game-name')?.value.trim() ||
+        `Risk Game ${new Date().toLocaleTimeString()}`;
+      const numPlayers = parseInt(document.getElementById('num-players').value);
+      const numHumans = parseInt(document.getElementById('num-humans').value);
+      const aiStrategies = getStrategySelections();
+
+      // Store game config for later
+      pendingGameConfig = {
+        playerName,
+        numPlayers,
+        numHumans,
+        gameMode: document.getElementById('game-mode').value,
+        aiStrategies
+      };
+
+      if (!network.isConnected()) {
+        network.connect(
+          () => {
+            network.createGame(playerName, gameName, numPlayers, numHumans, aiStrategies);
+          },
+          (error) => {
+            speech.speak('Cannot connect to server. Make sure the server is running with npm start.');
+          }
+        );
+      } else {
+        network.createGame(playerName, gameName, numPlayers, numHumans, aiStrategies);
+      }
+    }
+
+    // Join an existing game lobby
+    function joinGameLobby(gameId) {
+      const playerName = playerNameInput?.value.trim() || playerNameInput?.dataset.generatedName || gameModule.generateCountryName();
+
+      if (!network.isConnected()) {
+        network.connect(
+          () => {
+            network.joinGame(gameId, playerName);
+          },
+          (error) => {
+            speech.speak('Cannot connect to server.');
+          }
+        );
+      } else {
+        network.joinGame(gameId, playerName);
+      }
+    }
+
+    // Rejoin an ongoing game with a specific player slot
+    function rejoinGameSlot(gameId, playerIndex) {
+      const playerName = playerNameInput?.value.trim() || playerNameInput?.dataset.generatedName || gameModule.generateCountryName();
+
+      if (!network.isConnected()) {
+        network.connect(
+          () => {
+            network.rejoinGame(gameId, playerName, playerIndex);
+          },
+          (error) => {
+            speech.speak('Cannot connect to server.');
+          }
+        );
+      } else {
+        network.rejoinGame(gameId, playerName, playerIndex);
+      }
+    }
+
+    // Rejoin a multiplayer game with existing game state
+    function rejoinMultiplayerGame(game, playerIndex, gameState) {
+      if (!gameState) {
+        speech.speak('Cannot rejoin: no game state available.');
+        return;
+      }
+
+      // Hide setup screen, show game screen
+      document.getElementById('setup-screen').classList.add('hidden');
+      document.getElementById('lobby-screen').classList.add('hidden');
+      document.getElementById('game-screen').classList.remove('hidden');
+
+      // Restore the game state
+      restore(gameState);
+      G.multiplayerMode = true;
+
+      // Mark which player is local (me) vs remote
+      for (let i = 0; i < G.players.length; i++) {
+        if (G.players[i].isHuman) {
+          G.players[i].isRemote = (i !== playerIndex);
+          G.players[i].connected = true;
+        }
+      }
+
+      // Update our tracked human player
+      G.humanPlayerId = playerIndex;
+
+      // Apply local settings
+      const savedPrefs = loadPreferences();
+      if (savedPrefs) {
+        G.aiDelay = savedPrefs.aiDelay ?? G.aiDelay;
+        if (savedPrefs.voiceName) speech.setVoice(savedPrefs.voiceName);
+        if (savedPrefs.rate) speech.setRate(savedPrefs.rate);
+      }
+
+      // Update UI
+      ui.updateUI();
+      speech.speak(`Rejoined game. ${G.phase} phase. ${currentPlayer()?.name || 'Unknown'}'s turn.`);
+
+      // If it's my turn, let me play. If not, wait for actions.
+      if (currentPlayer()?.id === playerIndex && currentPlayer()?.isHuman && !currentPlayer()?.isRemote) {
+        speech.speak('It is your turn.');
+      }
+    }
+
+    // Leave the lobby
+    function leaveLobby() {
+      network.leaveGame();
+      document.getElementById('lobby-screen').classList.add('hidden');
+      document.getElementById('setup-screen').classList.remove('hidden');
+      speech.speak('Left the lobby.');
+    }
+
+    // Refresh games list
+    function refreshGames() {
+      if (network.isConnected()) {
+        network.getGames();
+        speech.speak('Refreshing games list.');
+      } else {
+        connectToServer();
+      }
+    }
+
+    // Start multiplayer game (host only)
+    function startMultiplayerGame() {
+      if (!network.getIsHost()) {
+        speech.speak('Only the host can start the game.');
+        return;
+      }
+
+      const lobbySettings = {
+        voiceName: speech.getVoiceName(),
+        speechRate: parseFloat(document.getElementById('lobby-speech-rate')?.value || 1.2),
+        aiDelay: parseFloat(document.getElementById('lobby-ai-delay')?.value || 2) * 1000,
+        soundEnabled: document.getElementById('lobby-sound-effects')?.checked ?? true
+      };
+
+      // Initialize the game state
+      sounds.init();
+      sounds.setEnabled(lobbySettings.soundEnabled);
+      speech.setRate(lobbySettings.speechRate);
+      G.aiDelay = lobbySettings.aiDelay;
+
+      reset();
+      G.gameMode = pendingGameConfig.gameMode;
+      G.startTime = Date.now();
+      G.multiplayerMode = true;
+
+      // Initialize players with multiplayer setup
+      initPlayersMultiplayer(pendingGameConfig.numPlayers, pendingGameConfig.numHumans, pendingGameConfig.aiStrategies);
+      initTerritories();
+      initDeck();
+      initStats();
+
+      // Assign territories based on game mode
+      if (pendingGameConfig.gameMode === 'random' || pendingGameConfig.gameMode === 'random-troops' || pendingGameConfig.gameMode === 'empire') {
+        gameModule.randomAssignTerritories(pendingGameConfig.gameMode === 'empire');
+        if (pendingGameConfig.gameMode === 'random-troops') {
+          gameModule.randomPlaceTroops();
+        }
+      }
+
+      // Build player assignments mapping
+      const assignments = {};
+      // Get all connected players from the game info (we need to get this from network state)
+      // For now, we'll assign based on join order
+
+      // Send game start to server
+      const initialState = serialize();
+      network.startGame(initialState, assignments);
+    }
+
+    // Initialize players for multiplayer
+    function initPlayersMultiplayer(numPlayers, numHumans, aiStrategies) {
+      const { PLAYER_COLORS, STARTING_ARMIES } = window.RiskData;
+      const { STRATEGIES, STRATEGY_NAMES } = window.RiskAI;
+
+      G.players = [];
+      G.spectatorMode = false;
+      const usedNames = new Set();
+
+      // Get AI strategies
+      let aiStrategyList;
+      if (aiStrategies && aiStrategies.length > 0) {
+        aiStrategyList = [...aiStrategies];
+        // Shuffle AI strategies
+        for (let i = aiStrategyList.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [aiStrategyList[i], aiStrategyList[j]] = [aiStrategyList[j], aiStrategyList[i]];
+        }
+      } else {
+        const strategyPool = [...STRATEGY_NAMES];
+        for (let i = strategyPool.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [strategyPool[i], strategyPool[j]] = [strategyPool[j], strategyPool[i]];
+        }
+        aiStrategyList = [];
+        const aiCount = numPlayers - numHumans;
+        for (let i = 0; i < aiCount; i++) {
+          aiStrategyList.push(strategyPool[i % strategyPool.length]);
+        }
+      }
+
+      let aiIndex = 0;
+
+      // Create players in order - first humans, then AI
+      for (let i = 0; i < numPlayers; i++) {
+        const isHuman = i < numHumans;
+        let player;
+
+        if (isHuman) {
+          // Human player - name will be filled from network state
+          const name = i === myAssignedPlayerIndex
+            ? (playerNameInput?.value.trim() || 'Player ' + (i + 1))
+            : 'Player ' + (i + 1);
+          player = {
+            id: i,
+            name: name,
+            isHuman: true,
+            isRemote: i !== myAssignedPlayerIndex,
+            strategy: null,
+            strategyName: null,
+            cards: [],
+            eliminated: false
+          };
+        } else {
+          // AI player
+          const strategy = aiStrategyList[aiIndex++];
+          const countryName = gameModule.generateCountryName(usedNames);
+          usedNames.add(countryName);
+          player = {
+            id: i,
+            name: countryName,
+            isHuman: false,
+            isRemote: false,
+            strategy,
+            strategyName: STRATEGIES[strategy]?.name || strategy,
+            cards: [],
+            eliminated: false
+          };
+        }
+
+        player.color = PLAYER_COLORS[i].hex;
+        player.colorName = PLAYER_COLORS[i].name;
+        G.players.push(player);
+      }
+
+      G.humanPlayerId = myAssignedPlayerIndex;
+
+      const armies = STARTING_ARMIES[numPlayers] || 30;
+      for (const p of G.players) G.setupArmies[p.id] = armies;
+    }
+
+    // Called when server broadcasts game start
+    function startMultiplayerGameFromServer(game, initialState, assignments) {
+      document.getElementById('lobby-screen').classList.add('hidden');
+      document.getElementById('game-screen').classList.remove('hidden');
+
+      // Apply lobby settings
+      const lobbySettings = {
+        speechRate: parseFloat(document.getElementById('lobby-speech-rate')?.value || 1.2),
+        aiDelay: parseFloat(document.getElementById('lobby-ai-delay')?.value || 2) * 1000,
+        soundEnabled: document.getElementById('lobby-sound-effects')?.checked ?? true
+      };
+
+      sounds.init();
+      sounds.setEnabled(lobbySettings.soundEnabled);
+      speech.setRate(lobbySettings.speechRate);
+
+      // Restore state from server
+      restore(initialState);
+      G.aiDelay = lobbySettings.aiDelay;
+      G.multiplayerMode = true;
+
+      // Update player names from game info
+      for (const serverPlayer of game.players) {
+        const localPlayer = G.players[serverPlayer.playerIndex];
+        if (localPlayer) {
+          localPlayer.name = serverPlayer.name;
+          localPlayer.isRemote = serverPlayer.playerIndex !== myAssignedPlayerIndex;
+        }
+      }
+
+      G.humanPlayerId = myAssignedPlayerIndex;
+
+      // Initialize map
+      if (map) {
+        map.createMap();
+        const savedMapVisible = localStorage.getItem('riskMapVisible');
+        const mapContainer = document.getElementById('map-container');
+        const mapBtn = mapContainer?.querySelector('.map-toggle-btn:last-child');
+        if (savedMapVisible === 'false' && mapContainer) {
+          mapContainer.classList.add('hidden');
+          if (mapBtn) mapBtn.textContent = 'Show Map';
+        }
+      }
+
+      startIntervals();
+      ui.updateUI();
+
+      // Announce game start
+      const myPlayer = G.players[myAssignedPlayerIndex];
+      let startAnnouncement = 'Multiplayer game starting.';
+      startAnnouncement += ` You are ${myPlayer?.colorName || 'Unknown'}, player ${myAssignedPlayerIndex + 1} of ${G.players.length}.`;
+      speech.speak(startAnnouncement);
+      log('Multiplayer game started');
+
+      // Start the appropriate phase
+      const gameMode = G.gameMode;
+      if (gameMode === 'random' || gameMode === 'empire') {
+        gameModule.startSetupReinforce();
+      } else if (gameMode === 'random-troops') {
+        gameModule.startMainGame();
+      } else {
+        gameModule.startClaimPhase();
+      }
+    }
+
+    // Handle remote player actions
+    function handleRemoteAction(action, data, fromClientId, fromPlayerName) {
+      console.log('Remote action:', action, data, 'from', fromPlayerName);
+
+      switch (action) {
+        case 'claim':
+          applyRemoteClaim(data);
+          break;
+        case 'place':
+          applyRemotePlace(data);
+          break;
+        case 'attack':
+          applyRemoteAttack(data);
+          break;
+        case 'fortify':
+          applyRemoteFortify(data);
+          break;
+        case 'trade':
+          applyRemoteTrade(data);
+          break;
+        case 'endPhase':
+          applyRemoteEndPhase(data);
+          break;
+        case 'nextPlayer':
+          applyRemoteNextPlayer(data);
+          break;
+      }
+
+      ui.updateUI();
+    }
+
+    // Apply remote claim action
+    function applyRemoteClaim(data) {
+      const { territory, playerId, playerName } = data;
+      G.territories[territory].owner = playerId;
+      G.territories[territory].troops = 1;
+      G.setupArmies[playerId]--;
+      log(`${playerName} claims ${territory}`);
+      speech.speak(`${playerName} claims ${territory}.`);
+      sounds.play('place');
+
+      G.currentPlayer = (G.currentPlayer + 1) % G.players.length;
+      if (TERRITORIES.filter(t => G.territories[t.name].owner === null).length === 0) {
+        gameModule.startSetupReinforce();
+      } else {
+        ui.updateUI();
+        checkAndScheduleAI();
+      }
+    }
+
+    // Apply remote place action
+    function applyRemotePlace(data) {
+      const { territory, amount, playerId, playerName, phase, remaining, turnComplete, allReinforcementsPlaced, setupTroopsPlacedThisRound } = data;
+      G.territories[territory].troops += amount;
+
+      if (phase === 'setup-reinforce') {
+        G.setupArmies[playerId] -= amount;
+        // Sync the round counter
+        if (setupTroopsPlacedThisRound !== undefined) {
+          G.setupTroopsPlacedThisRound = setupTroopsPlacedThisRound;
+        }
+        log(`${playerName} places ${amount} on ${territory} (${G.setupArmies[playerId]} left)`);
+        sounds.play('place');
+
+        // If their turn is complete, advance to next player
+        if (turnComplete) {
+          speech.speak(`${playerName} places ${amount} on ${territory}. ${G.setupArmies[playerId]} remaining. Round complete.`);
+          gameModule.nextSetupPlayer();
+        } else {
+          const remainingThisRound = 3 - (setupTroopsPlacedThisRound || 0);
+          speech.speak(`${playerName} places ${amount} on ${territory}. ${remainingThisRound} more this round.`);
+          ui.updateUI();
+        }
+      } else {
+        G.armiesToPlace -= amount;
+        if (G.stats.troopsPlaced && G.stats.troopsPlaced[playerId] !== undefined) {
+          G.stats.troopsPlaced[playerId] += amount;
+        }
+        log(`${playerName} places ${amount} on ${territory}`);
+        sounds.play('place');
+
+        // If all reinforcements placed, move to attack phase
+        if (allReinforcementsPlaced || G.armiesToPlace <= 0) {
+          speech.speak(`${playerName} places ${amount} on ${territory}. All reinforcements placed. Attack phase.`);
+          setTimeout(() => gameModule.startAttackPhase(), 300);
+        } else {
+          speech.speak(`${playerName} places ${amount} on ${territory}. ${G.armiesToPlace} left.`);
+        }
+      }
+    }
+
+    // Apply remote attack action
+    function applyRemoteAttack(data) {
+      const { from, to, result, playerName, conquered, defenderId } = data;
+
+      G.territories[from].troops = data.fromTroops;
+      G.territories[to].troops = data.toTroops;
+      G.territories[to].owner = data.toOwner;
+
+      log(`${playerName} attacks ${to} from ${from}`);
+      log(`  [${result.attackRolls}] vs [${result.defendRolls}]: -${result.attackerLosses}/-${result.defenderLosses}`);
+
+      speech.speak(`${playerName} attacks ${to} from ${from}.`);
+      sounds.play('attack');
+
+      if (conquered) {
+        log(`${playerName} conquers ${to}!`, true);
+        speech.speak(`${playerName} conquers ${to}!`);
+        sounds.play('victory');
+        G.conqueredThisTurn = true;
+        gameModule.checkContinentControl();
+
+        // Check if defender was eliminated
+        if (data.defenderEliminated) {
+          const defender = G.players[defenderId];
+          defender.eliminated = true;
+          G.stats.eliminated[defenderId] = G.turnNumber;
+          speech.speak(`${defender.name} eliminated!`);
+          sounds.play('elimination');
+          log(`${defender.name} eliminated`, true);
+
+          // Transfer cards
+          if (data.cardsTransferred) {
+            G.players[data.attackerId].cards.push(...defender.cards);
+            defender.cards = [];
+          }
+        }
+
+        // Check victory
+        const winner = gameModule.checkVictory();
+        if (winner !== null) {
+          gameModule.endGame(winner);
+        }
+      }
+    }
+
+    // Apply remote fortify action
+    function applyRemoteFortify(data) {
+      const { from, to, amount, playerName } = data;
+      G.territories[from].troops -= amount;
+      G.territories[to].troops += amount;
+      log(`${playerName} moves ${amount} from ${from} to ${to}`);
+      speech.speak(`${playerName} moves ${amount} from ${from} to ${to}.`);
+      sounds.play('fortify');
+    }
+
+    // Apply remote trade action
+    function applyRemoteTrade(data) {
+      const { playerId, playerName, value, territoryBonuses } = data;
+      G.armiesToPlace = (G.armiesToPlace || 0) + value;
+      G.tradeCount++;
+
+      // Apply territory bonuses
+      for (const territory of territoryBonuses) {
+        if (G.territories[territory]?.owner === playerId) {
+          G.territories[territory].troops += 2;
+        }
+      }
+
+      let ann = `${playerName} trades cards for ${value}`;
+      if (territoryBonuses.length > 0) {
+        ann += ` plus ${territoryBonuses.length * 2} on ${territoryBonuses.join(', ')}`;
+      }
+      speech.speak(ann + '.');
+      sounds.play('card');
+    }
+
+    // Apply remote end phase
+    function applyRemoteEndPhase(data) {
+      const { phase, nextPhase, playerId, playerName } = data;
+      G.phase = nextPhase;
+      if (nextPhase === 'attack') {
+        G.attackFrom = null;
+        G.armiesToPlace = 0;
+        const player = G.players[playerId];
+        speech.speak(`${playerName || player?.name || 'Player'} moves to attack phase.`);
+        // Update territory index for current player
+        const idx = TERRITORIES.findIndex(t => {
+          const ter = G.territories[t.name];
+          return ter.owner === G.currentPlayer && ter.troops > 1 && getEnemyNeighbors(t.name, G.currentPlayer).length > 0;
+        });
+        if (idx >= 0) G.currentTerritoryIdx = idx;
+      } else if (nextPhase === 'fortify') {
+        G.attackFrom = null;
+        G.fortifyFrom = null;
+        speech.speak(`${playerName || 'Player'} moves to fortify phase.`);
+      }
+      ui.updateUI();
+    }
+
+    // Apply remote next player
+    function applyRemoteNextPlayer(data) {
+      G.currentPlayer = data.nextPlayer;
+      if (data.newTurn) {
+        G.turnNumber = data.turnNumber;
+      }
+      G.phase = 'reinforce';
+      G.armiesToPlace = data.armies;
+      G.conqueredThisTurn = false;
+      G.attackFrom = null;
+      G.fortifyFrom = null;
+      speech.speak(`${G.players[data.nextPlayer].name}'s turn.`);
+      checkAndScheduleAI();
+    }
+
+    // Handle full state sync from another player
+    function handleRemoteStateSync(state, fromClientId) {
+      restore(state);
+      G.humanPlayerId = myAssignedPlayerIndex;
+      G.multiplayerMode = true;
+      ui.updateUI();
+    }
+
+    // Helper to check if we should schedule AI
+    // In multiplayer, only the host runs AI to avoid duplicate actions
+    function checkAndScheduleAI() {
+      const player = currentPlayer();
+      if (player && !player.isHuman && G.phase !== 'gameover') {
+        // In multiplayer, only run AI if we're the host
+        if (G.multiplayerMode && !network.getIsHost()) {
+          // Not the host - don't run AI, wait for host to broadcast actions
+          return;
+        }
+        setTimeout(gameModule.aiTurn, G.aiDelay);
+      }
+    }
+
+    // Broadcast local action to other players
+    function broadcastAction(action, data) {
+      if (G.multiplayerMode && network.isConnected()) {
+        network.sendAction(action, data);
+      }
+    }
+
+    // Broadcast full state sync
+    function broadcastState() {
+      if (G.multiplayerMode && network.isConnected()) {
+        network.syncState(serialize());
+      }
+    }
+
+    // Check if it's this client's turn (human player)
+    function isMyTurn() {
+      if (!G.multiplayerMode) return true;
+      const player = currentPlayer();
+      return player && player.isHuman && !player.isRemote;
+    }
 
     // Connect callbacks - wrap updateUI to also update the map
     const map = window.RiskMap;
@@ -421,7 +1400,7 @@
       originalUpdateUI();
       if (map) map.updateMap();
     };
-    gameModule.setCallbacks(enhancedUpdateUI, ui.showAfterActionReport, ui.showTroopInput, ui.showDiceResult);
+    gameModule.setCallbacks(enhancedUpdateUI, ui.showAfterActionReport, ui.showTroopInput, ui.showDiceResult, broadcastAction);
     // Also patch ui.updateUI for direct calls
     ui.updateUI = enhancedUpdateUI;
 
@@ -826,6 +1805,7 @@
       if (G.phase !== 'claim') return;
       const player = currentPlayer();
       if (!player.isHuman) return;
+      if (G.multiplayerMode && player.isRemote) return; // Not my turn
       const t = currentTerritory();
       if (G.territories[t.name].owner !== null) { sounds.play('error'); speech.speak('Already claimed.'); return; }
       G.territories[t.name].owner = player.id;
@@ -834,6 +1814,14 @@
       sounds.play('place');
       log(`${player.name} claims ${t.name}`);
       speech.speak(`${player.name} claims ${t.name}.`);
+
+      // Broadcast to other players
+      broadcastAction('claim', {
+        territory: t.name,
+        playerId: player.id,
+        playerName: player.name
+      });
+
       G.currentPlayer = (G.currentPlayer + 1) % G.players.length;
       if (TERRITORIES.filter(t => G.territories[t.name].owner === null).length === 0) gameModule.startSetupReinforce();
       else { ui.updateUI(); if (!currentPlayer().isHuman) setTimeout(gameModule.aiTurn, G.aiDelay); }
@@ -842,18 +1830,60 @@
     function placeArmy() {
       const player = currentPlayer();
       if (!player.isHuman) return;
+      if (G.multiplayerMode && player.isRemote) return; // Not my turn
       const t = currentTerritory();
       if (G.territories[t.name].owner !== player.id) { sounds.play('error'); speech.speak(`Not ${player.name}'s territory.`); return; }
       if (G.phase === 'setup-reinforce') {
-        const max = G.setupArmies[player.id];
-        if (max <= 0) { sounds.play('error'); speech.speak('No armies.'); return; }
-        const maxPerTurn = Math.min(3, max);
-        ui.showTroopInput('Place Armies', `How many armies to place on ${t.name}?`, 1, maxPerTurn, amt => {
+        const playerArmies = G.setupArmies[player.id];
+        if (playerArmies <= 0) { sounds.play('error'); speech.speak('No armies.'); return; }
+
+        // Calculate how many more troops can be placed this round (max 3 total per round)
+        const remainingThisRound = 3 - G.setupTroopsPlacedThisRound;
+        if (remainingThisRound <= 0) {
+          // Shouldn't happen, but handle gracefully
+          gameModule.nextSetupPlayer();
+          return;
+        }
+
+        // Max is the lesser of player's remaining armies OR remaining troops this round
+        const maxToPlace = Math.min(playerArmies, remainingThisRound);
+        const promptText = G.setupTroopsPlacedThisRound > 0
+          ? `How many armies to place on ${t.name}? (${remainingThisRound} left this round)`
+          : `How many armies to place on ${t.name}? (up to 3 per round)`;
+
+        ui.showTroopInput('Place Armies', promptText, 1, maxToPlace, amt => {
           G.territories[t.name].troops += amt;
           G.setupArmies[player.id] -= amt;
+          G.setupTroopsPlacedThisRound += amt;  // Track troops placed this round
           sounds.play('place');
-          speech.speak(`${player.name} places ${amt} on ${t.name}. ${G.setupArmies[player.id]} remaining.`);
-          gameModule.nextSetupPlayer();
+
+          const remainingAfter = 3 - G.setupTroopsPlacedThisRound;
+          const roundComplete = G.setupTroopsPlacedThisRound >= 3 || G.setupArmies[player.id] <= 0;
+
+          if (roundComplete) {
+            speech.speak(`${player.name} places ${amt} on ${t.name}. ${G.setupArmies[player.id]} remaining. Round complete.`);
+          } else {
+            speech.speak(`${player.name} places ${amt} on ${t.name}. ${remainingAfter} more this round. ${G.setupArmies[player.id]} total remaining.`);
+          }
+          log(`${player.name} places ${amt} on ${t.name}`);
+
+          // Broadcast to other players - include turnComplete flag only when round is done
+          broadcastAction('place', {
+            territory: t.name,
+            amount: amt,
+            playerId: player.id,
+            playerName: player.name,
+            phase: 'setup-reinforce',
+            remaining: G.setupArmies[player.id],
+            setupTroopsPlacedThisRound: G.setupTroopsPlacedThisRound,
+            turnComplete: roundComplete
+          });
+
+          if (roundComplete) {
+            gameModule.nextSetupPlayer();
+          } else {
+            ui.updateUI();  // Update UI but stay on same player
+          }
         });
       } else if (G.phase === 'reinforce') {
         if (G.armiesToPlace <= 0) { sounds.play('error'); speech.speak('No armies.'); return; }
@@ -862,7 +1892,22 @@
           G.armiesToPlace -= amt;
           G.stats.troopsPlaced[player.id] += amt;
           sounds.play('place');
-          if (G.armiesToPlace === 0) {
+          log(`${player.name} places ${amt} on ${t.name}`);
+
+          const allPlaced = G.armiesToPlace === 0;
+
+          // Broadcast to other players - include allReinforcementsPlaced flag
+          broadcastAction('place', {
+            territory: t.name,
+            amount: amt,
+            playerId: player.id,
+            playerName: player.name,
+            phase: 'reinforce',
+            remaining: G.armiesToPlace,
+            allReinforcementsPlaced: allPlaced
+          });
+
+          if (allPlaced) {
             // All reinforcements placed, auto-advance to attack phase
             speech.speak(`${player.name} places ${amt} on ${t.name}. ${t.name}: ${G.territories[t.name].troops}. All reinforcements placed. Moving to attack phase.`);
             ui.updateUI();
@@ -885,6 +1930,7 @@
     function tradeCards() {
       const player = currentPlayer();
       if (!player.isHuman || G.phase !== 'reinforce') return;
+      if (G.multiplayerMode && player.isRemote) return; // Not my turn
       const set = gameModule.findValidCardSet(player.cards);
       if (!set) { speech.speak('No valid set.'); return; }
       const result = gameModule.executeCardTrade(player, set);
@@ -896,12 +1942,22 @@
       }
       ann += `. Total to place: ${G.armiesToPlace}.`;
       speech.speak(ann);
+
+      // Broadcast to other players
+      broadcastAction('trade', {
+        playerId: player.id,
+        playerName: player.name,
+        value: result.value,
+        territoryBonuses: result.territoryBonuses
+      });
+
       ui.updateUI();
     }
 
     function selectAttackSource() {
       if (G.phase !== 'attack') return;
       const player = currentPlayer();
+      if (G.multiplayerMode && player.isRemote) return; // Not my turn
       const t = currentTerritory();
 
       // If selecting the same territory that's already the attack source, deselect it
@@ -932,6 +1988,7 @@
     function executeAttack() {
       if (G.phase !== 'attack' || !G.attackFrom) { speech.speak('Select source first.'); return; }
       const player = currentPlayer();
+      if (G.multiplayerMode && player.isRemote) return; // Not my turn
       const t = currentTerritory();
       const fromData = findTerritory(G.attackFrom);
       if (!fromData.borders.includes(t.name)) { sounds.play('error'); speech.speak('Not adjacent.'); return; }
@@ -940,6 +1997,8 @@
 
       const from = G.territories[G.attackFrom], to = G.territories[t.name];
       const defender = G.players[to.owner];
+      const defenderId = to.owner;
+      const attackFromName = G.attackFrom;
       G.stats.attacks[player.id]++;
       log(`${player.name} attacks ${t.name} from ${G.attackFrom}`);
       speech.speak(`${player.name} attacks ${t.name} from ${G.attackFrom}.`);
@@ -951,7 +2010,12 @@
       else { G.stats.failed[player.id]++; G.stats.won[defender.id]++; }
 
       ui.showDiceResult(result, () => {
+        let conquered = false;
+        let defenderEliminated = false;
+        let cardsTransferred = false;
+
         if (to.troops === 0) {
+          conquered = true;
           G.conqueredThisTurn = true;
           G.stats.conquered[player.id]++;
           G.stats.lost[defender.id]++;
@@ -965,9 +2029,15 @@
 
           const defT = Object.values(G.territories).filter(x => x.owner === oldOwner);
           if (defT.length === 0 && oldOwner !== null) {
+            defenderEliminated = true;
             defender.eliminated = true;
             G.stats.eliminated[oldOwner] = G.turnNumber;
-            if (defender.cards.length > 0) { player.cards.push(...defender.cards); defender.cards = []; speech.speak(`${defender.name} eliminated! Cards captured.`); }
+            if (defender.cards.length > 0) {
+              cardsTransferred = true;
+              player.cards.push(...defender.cards);
+              defender.cards = [];
+              speech.speak(`${defender.name} eliminated! Cards captured.`);
+            }
             else speech.speak(`${defender.name} eliminated!`);
             sounds.play('elimination');
             log(`${defender.name} eliminated`, true);
@@ -977,29 +2047,85 @@
           if (winner !== null) { gameModule.endGame(winner); return; }
 
           const minMove = Math.min(3, from.troops - 1), maxMove = from.troops - 1;
+          const finishAttack = (moveAmt) => {
+            from.troops -= moveAmt;
+            to.troops = moveAmt;
+            speech.speak(`${player.name} moves ${moveAmt} troops to ${t.name}.`);
+
+            // Broadcast attack action
+            broadcastAction('attack', {
+              from: attackFromName,
+              to: t.name,
+              result: result,
+              playerName: player.name,
+              attackerId: player.id,
+              defenderId: defenderId,
+              conquered: true,
+              fromTroops: from.troops,
+              toTroops: to.troops,
+              toOwner: player.id,
+              defenderEliminated,
+              cardsTransferred
+            });
+
+            G.attackFrom = null;
+            ui.updateUI();
+          };
+
           if (minMove === maxMove) {
-            from.troops -= minMove; to.troops = minMove;
-            speech.speak(`${player.name} moves ${minMove} troops to ${t.name}.`);
-            G.attackFrom = null; ui.updateUI();
+            finishAttack(minMove);
+          } else {
+            ui.showTroopInput('Move Troops', `How many to ${t.name}?`, minMove, maxMove, finishAttack);
           }
-          else ui.showTroopInput('Move Troops', `How many to ${t.name}?`, minMove, maxMove, amt => {
-            from.troops -= amt; to.troops = amt;
-            speech.speak(`${player.name} moves ${amt} troops to ${t.name}.`);
-            G.attackFrom = null; ui.updateUI();
-          });
         } else {
+          // Attack didn't conquer - broadcast the result
+          broadcastAction('attack', {
+            from: attackFromName,
+            to: t.name,
+            result: result,
+            playerName: player.name,
+            attackerId: player.id,
+            defenderId: defenderId,
+            conquered: false,
+            fromTroops: from.troops,
+            toTroops: to.troops,
+            toOwner: to.owner
+          });
+
           if (from.troops <= 1) { speech.speak('Attack exhausted.'); G.attackFrom = null; }
           ui.updateUI();
         }
       });
     }
 
-    function cancelAttack() { G.attackFrom = null; speech.speak('Cancelled.'); ui.updateUI(); }
-    function endAttack() { G.attackFrom = null; gameModule.startFortifyPhase(); }
+    function cancelAttack() {
+      const player = currentPlayer();
+      if (G.multiplayerMode && player?.isRemote) return;
+      G.attackFrom = null;
+      speech.speak('Cancelled.');
+      ui.updateUI();
+    }
+
+    function endAttack() {
+      const player = currentPlayer();
+      if (G.multiplayerMode && player?.isRemote) return;
+      G.attackFrom = null;
+
+      // Broadcast phase change
+      broadcastAction('endPhase', {
+        phase: 'attack',
+        nextPhase: 'fortify',
+        playerId: player?.id,
+        playerName: player?.name
+      });
+
+      gameModule.startFortifyPhase();
+    }
 
     function selectFortifySource() {
       if (G.phase !== 'fortify') return;
       const player = currentPlayer();
+      if (G.multiplayerMode && player.isRemote) return; // Not my turn
       const t = currentTerritory();
       if (G.territories[t.name].owner !== player.id) { sounds.play('error'); speech.speak(`Not ${player.name}'s territory.`); return; }
       if (G.territories[t.name].troops <= 1) { sounds.play('error'); speech.speak('Need more troops.'); return; }
@@ -1012,6 +2138,7 @@
     function executeFortify() {
       if (G.phase !== 'fortify' || !G.fortifyFrom) { speech.speak('Select source first.'); return; }
       const player = currentPlayer();
+      if (G.multiplayerMode && player.isRemote) return; // Not my turn
       const t = currentTerritory();
       if (G.territories[t.name].owner !== player.id) { sounds.play('error'); speech.speak(`Not ${player.name}'s territory.`); return; }
       if (t.name === G.fortifyFrom) { sounds.play('error'); speech.speak('Select different territory.'); return; }
@@ -1024,13 +2151,50 @@
         log(`${player.name} moves ${amt} from ${fortifySource} to ${t.name}`);
         sounds.play('fortify');
         speech.speak(`${player.name} moves ${amt} from ${fortifySource} to ${t.name}.`);
+
+        // Broadcast to other players
+        broadcastAction('fortify', {
+          from: fortifySource,
+          to: t.name,
+          amount: amt,
+          playerId: player.id,
+          playerName: player.name
+        });
+
         G.fortifyFrom = null;
         gameModule.nextPlayer();
       });
     }
 
-    function cancelFortify() { G.fortifyFrom = null; speech.speak('Cancelled.'); ui.updateUI(); }
-    function endTurn() { G.fortifyFrom = null; gameModule.nextPlayer(); }
+    function cancelFortify() {
+      const player = currentPlayer();
+      if (G.multiplayerMode && player?.isRemote) return;
+      G.fortifyFrom = null;
+      speech.speak('Cancelled.');
+      ui.updateUI();
+    }
+
+    function endTurn() {
+      const player = currentPlayer();
+      if (G.multiplayerMode && player?.isRemote) return;
+      G.fortifyFrom = null;
+
+      // Calculate next player info for broadcast
+      const currentIdx = G.currentPlayer;
+
+      gameModule.nextPlayer();
+
+      // Broadcast next player
+      if (G.phase !== 'gameover') {
+        broadcastAction('nextPlayer', {
+          previousPlayer: currentIdx,
+          nextPlayer: G.currentPlayer,
+          turnNumber: G.turnNumber,
+          newTurn: G.currentPlayer < currentIdx || G.currentPlayer === 0,
+          armies: G.armiesToPlace
+        });
+      }
+    }
 
     // Save/Load
     function saveToFile() {
@@ -1110,6 +2274,22 @@
       if (key === 'c') { ui.listCards(); return; }
       if (key === 'p') { ui.announcePhase(); return; }
       if (key === 'r') { speech.repeat(); return; }
+      if (key === 's') {
+        // Focus on game info panel and announce current status
+        const infoPanel = document.getElementById('game-info-panel');
+        if (infoPanel) {
+          infoPanel.focus();
+          const player = currentPlayer();
+          const phase = G.phase;
+          const turn = G.turnNumber;
+          let status = `Turn ${turn}, ${phase} phase. Current player: ${player?.name || 'none'}.`;
+          if (G.multiplayerMode && player?.isHuman && player?.isRemote) {
+            status += ` Waiting for ${player.name} to play.`;
+          }
+          speech.speak(status);
+        }
+        return;
+      }
       if (key === 'v') { toggleMapVisibility(); return; }
       if (key === ' ' || key === 'enter' || key === 'k') {
         e.preventDefault();
@@ -1155,8 +2335,36 @@
     // Quick jump input
     document.getElementById('quick-jump-input')?.addEventListener('input', e => ui.updateQuickJumpMatches(e.target.value));
 
+    // Initialize multiplayer UI
+    updateHumanPlayersOptions();
+
+    // Try to connect to server on page load to show available games
+    setTimeout(() => {
+      network.connect(
+        () => {
+          console.log('Auto-connected to multiplayer server');
+          // Show available games section
+          const section = document.getElementById('available-games');
+          if (section) section.classList.remove('hidden');
+        },
+        (error) => {
+          // Server not running - that's fine for single player
+          console.log('Server not available (single player mode)');
+        }
+      );
+    }, 500);
+
     // Expose to window
-    window.game = { startGame, resumeGame, claimTerritory, placeArmy, endReinforce, tradeCards, selectAttackSource, executeAttack, cancelAttack, endAttack, selectFortifySource, executeFortify, cancelFortify, endTurn, saveToFile, loadFromFile, downloadLog, updateAIDelayFromUI, togglePause, toggleSpeech: speech.toggle, toggleSound: sounds.toggle, showHelp: ui.showHelp };
+    window.game = {
+      startGame, resumeGame,
+      claimTerritory, placeArmy, endReinforce, tradeCards,
+      selectAttackSource, executeAttack, cancelAttack, endAttack,
+      selectFortifySource, executeFortify, cancelFortify, endTurn,
+      saveToFile, loadFromFile, downloadLog, updateAIDelayFromUI, togglePause,
+      toggleSpeech: speech.toggle, toggleSound: sounds.toggle, showHelp: ui.showHelp,
+      // Multiplayer functions
+      createLobby, joinGameLobby, rejoinGameSlot, leaveLobby, refreshGames, startMultiplayerGame
+    };
     window.ui = ui;
   </script>
 </body>

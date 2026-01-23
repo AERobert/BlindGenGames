@@ -1,0 +1,16 @@
+{
+  "name": "risk-multiplayer",
+  "version": "1.0.0",
+  "description": "Multiplayer Risk game with WebSocket support",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "ws": "^8.14.2"
+  },
+  "keywords": ["risk", "multiplayer", "game", "websocket"],
+  "author": "",
+  "license": "MIT"
+}
