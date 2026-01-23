@@ -138,11 +138,14 @@
         <div class="header-controls" role="toolbar" aria-label="Game controls">
           <span id="game-timer" aria-live="off" aria-label="Game timer">0:00</span>
           <button class="btn-small" id="pause-ai-btn" aria-pressed="false" onclick="game.togglePause()">Pause (Space)</button>
-          <button class="btn-small" id="toggle-speech-btn" aria-pressed="true" onclick="game.toggleSpeech()">Speech: On</button>
+          <button class="btn-small" id="toggle-voice-btn" aria-pressed="true" onclick="game.toggleVoice()" title="Web API text-to-speech">Voice: On</button>
+          <button class="btn-small" id="toggle-aria-btn" aria-pressed="true" onclick="game.toggleAria()" title="Screen reader ARIA announcements">ARIA: On</button>
           <button class="btn-small" id="toggle-sound-btn" aria-pressed="true" onclick="game.toggleSound()">Sound: On</button>
           <button class="btn-small" onclick="game.saveToFile()">Save</button>
           <button class="btn-small" onclick="game.loadFromFile()">Load</button>
           <button class="btn-small" onclick="game.showHelp()">Help (?)</button>
+          <button class="btn-small" id="toggle-debug-btn" aria-pressed="false" onclick="game.toggleDebug()">Debug: Off</button>
+          <button class="btn-small" onclick="game.downloadDebugLog()">Download Log</button>
         </div>
       </header>
 
@@ -336,6 +339,88 @@
     const ui = window.RiskUI;
     const gameModule = window.RiskGame;
     const { STRATEGIES, STRATEGY_NAMES } = window.RiskAI;
+
+    // ====== DEBUG LOGGING ======
+    const debugLog = [];
+    let debugLogEnabled = false;
+
+    function logDebug(category, action, data = {}) {
+      if (!debugLogEnabled) return;
+      const entry = {
+        timestamp: new Date().toISOString(),
+        gameTime: G.startTime ? Math.floor((Date.now() - G.startTime) / 1000) : 0,
+        turn: G.turnNumber,
+        phase: G.phase,
+        currentPlayer: G.players[G.currentPlayer]?.name || 'Unknown',
+        category,
+        action,
+        data: JSON.parse(JSON.stringify(data))
+      };
+      debugLog.push(entry);
+      console.log(`[Debug] ${category}: ${action}`, data);
+    }
+
+    function downloadDebugLog() {
+      if (debugLog.length === 0) {
+        alert('No debug log entries. Enable debug logging first.');
+        return;
+      }
+
+      const lines = [];
+      lines.push('=== RISK GAME DEBUG LOG ===');
+      lines.push(`Generated: ${new Date().toISOString()}`);
+      lines.push(`Total Entries: ${debugLog.length}`);
+      lines.push(`Game Duration: ${G.startTime ? Math.floor((Date.now() - G.startTime) / 1000) : 0} seconds`);
+      lines.push(`Final Turn: ${G.turnNumber}`);
+      lines.push(`Multiplayer Mode: ${G.multiplayerMode}`);
+      lines.push(`Is Host: ${G.multiplayerHost}`);
+      lines.push('');
+      lines.push('=== LOG ENTRIES ===');
+      lines.push('');
+
+      for (const entry of debugLog) {
+        lines.push(`[${entry.timestamp}] Turn ${entry.turn} | Phase: ${entry.phase} | Player: ${entry.currentPlayer}`);
+        lines.push(`  Category: ${entry.category}`);
+        lines.push(`  Action: ${entry.action}`);
+        if (Object.keys(entry.data).length > 0) {
+          lines.push(`  Data: ${JSON.stringify(entry.data, null, 2).split('\n').join('\n    ')}`);
+        }
+        lines.push('');
+      }
+
+      const blob = new Blob([lines.join('\n')], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `risk-debug-log-${new Date().toISOString().replace(/[:.]/g, '-')}.txt`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+
+    function toggleDebugLog() {
+      debugLogEnabled = !debugLogEnabled;
+      const btn = document.getElementById('toggle-debug-btn');
+      if (btn) {
+        btn.textContent = debugLogEnabled ? 'Debug: On' : 'Debug: Off';
+        btn.setAttribute('aria-pressed', debugLogEnabled.toString());
+      }
+      if (debugLogEnabled) {
+        debugLog.length = 0; // Clear previous log when enabling
+        logDebug('System', 'Debug logging enabled', {
+          multiplayerMode: G.multiplayerMode,
+          isHost: G.multiplayerHost,
+          phase: G.phase,
+          currentPlayer: G.currentPlayer
+        });
+      }
+    }
+
+    function clearDebugLog() {
+      debugLog.length = 0;
+      alert('Debug log cleared.');
+    }
 
     // ====== STRATEGY SELECTION UI ======
     function buildStrategySliders() {
@@ -1164,6 +1249,13 @@
     function handleRemoteAction(action, data, fromClientId, fromPlayerName) {
       console.log('Remote action:', action, data, 'from', fromPlayerName);
 
+      // Log to debug log
+      logDebug('RemoteAction', action, {
+        fromClientId,
+        fromPlayerName,
+        ...data
+      });
+
       switch (action) {
         case 'claim':
           applyRemoteClaim(data);
@@ -1330,6 +1422,16 @@
     // Apply remote end phase
     function applyRemoteEndPhase(data) {
       const { phase, nextPhase, playerId, playerName } = data;
+
+      logDebug('PhaseTransition', 'endPhase received', {
+        fromPhase: phase,
+        toPhase: nextPhase,
+        playerId,
+        playerName,
+        currentPlayer: G.currentPlayer,
+        isHost: G.multiplayerHost
+      });
+
       G.phase = nextPhase;
       if (nextPhase === 'attack') {
         G.attackFrom = null;
@@ -1352,6 +1454,16 @@
 
     // Apply remote next player
     function applyRemoteNextPlayer(data) {
+      logDebug('PhaseTransition', 'nextPlayer received', {
+        previousPlayer: G.currentPlayer,
+        nextPlayer: data.nextPlayer,
+        nextPlayerName: G.players[data.nextPlayer]?.name,
+        armies: data.armies,
+        newTurn: data.newTurn,
+        turnNumber: data.turnNumber,
+        isHost: G.multiplayerHost
+      });
+
       G.currentPlayer = data.nextPlayer;
       if (data.newTurn) {
         G.turnNumber = data.turnNumber;
@@ -1361,7 +1473,29 @@
       G.conqueredThisTurn = false;
       G.attackFrom = null;
       G.fortifyFrom = null;
-      speech.speak(`${G.players[data.nextPlayer].name}'s turn.`);
+
+      // Update territory index to a territory owned by the new current player
+      const newIdx = TERRITORIES.findIndex(t => G.territories[t.name].owner === data.nextPlayer);
+      if (newIdx >= 0) {
+        G.currentTerritoryIdx = newIdx;
+      }
+
+      // Update stats for troops placed (only if this player hasn't been tracked yet for this turn)
+      if (G.stats.troopsPlaced && G.stats.troopsPlaced[data.nextPlayer] !== undefined) {
+        G.stats.troopsPlaced[data.nextPlayer] += data.armies;
+      }
+
+      // Play turn sound and announce
+      sounds.play('turn');
+      const player = G.players[data.nextPlayer];
+      const ann = `${player.name}'s turn, Turn ${G.turnNumber}. Reinforcement. ${data.armies} armies.`;
+      speech.speak(ann);
+
+      // Log the action
+      log(`${player.name} receives ${data.armies} armies`);
+
+      // Update UI first, then check for AI
+      ui.updateUI();
       checkAndScheduleAI();
     }
 
@@ -1382,14 +1516,26 @@
         // In multiplayer, only run AI if we're the host
         if (G.multiplayerMode && !G.multiplayerHost) {
           // Not the host - don't run AI, wait for host to broadcast actions
+          logDebug('AI', 'Skipped AI scheduling (not host)', {
+            playerName: player.name,
+            isHost: G.multiplayerHost
+          });
           return;
         }
+        logDebug('AI', 'Scheduling AI turn', {
+          playerName: player.name,
+          phase: G.phase,
+          delay: G.aiDelay
+        });
         setTimeout(gameModule.aiTurn, G.aiDelay);
       }
     }
 
     // Broadcast local action to other players
     function broadcastAction(action, data) {
+      // Log to debug log
+      logDebug('LocalAction', action, data);
+
       if (G.multiplayerMode && network.isConnected()) {
         network.sendAction(action, data);
       }
@@ -1621,6 +1767,25 @@
         const control = document.getElementById(id);
         if (control) control.disabled = !enabled;
       }
+      // Update voice button (Web API speech)
+      const voiceBtn = document.getElementById('toggle-voice-btn');
+      if (voiceBtn) {
+        if (enabled) {
+          voiceBtn.textContent = speech.isVoiceEnabled() ? 'Voice: On' : 'Voice: Off';
+          voiceBtn.setAttribute('aria-pressed', speech.isVoiceEnabled().toString());
+        } else {
+          voiceBtn.textContent = 'Voice Unavailable';
+          voiceBtn.setAttribute('aria-pressed', 'false');
+        }
+        voiceBtn.disabled = !enabled;
+      }
+      // Update ARIA button (screen reader) - always available
+      const ariaBtn = document.getElementById('toggle-aria-btn');
+      if (ariaBtn) {
+        ariaBtn.textContent = speech.isAriaEnabled() ? 'ARIA: On' : 'ARIA: Off';
+        ariaBtn.setAttribute('aria-pressed', speech.isAriaEnabled().toString());
+      }
+      // Legacy button support
       const toggleBtn = document.getElementById('toggle-speech-btn');
       if (toggleBtn) {
         if (enabled) {
@@ -2388,7 +2553,15 @@
       selectAttackSource, executeAttack, cancelAttack, endAttack,
       selectFortifySource, executeFortify, cancelFortify, endTurn,
       saveToFile, loadFromFile, downloadLog, updateAIDelayFromUI, togglePause,
-      toggleSpeech: speech.toggle, toggleSound: sounds.toggle, showHelp: ui.showHelp,
+      toggleSpeech: speech.toggle,
+      toggleVoice: speech.toggleVoice,
+      toggleAria: speech.toggleAria,
+      toggleSound: sounds.toggle,
+      showHelp: ui.showHelp,
+      // Debug functions
+      toggleDebug: toggleDebugLog,
+      downloadDebugLog,
+      clearDebugLog,
       // Multiplayer functions
       createLobby, joinGameLobby, rejoinGameSlot, leaveLobby, refreshGames, startMultiplayerGame
     };

@@ -7,7 +7,8 @@
   let voices = [];
   let voiceName = null;  // Store by name, not index!
   let rate = 1.2;
-  let enabled = true;
+  let voiceEnabled = true;  // Web API speech synthesis
+  let ariaEnabled = true;   // Screen reader ARIA live region
   let lastText = '';
   let initialized = false;
   let supported = true;
@@ -18,7 +19,7 @@
   function init() {
     supported = !!(window.speechSynthesis && typeof SpeechSynthesisUtterance !== 'undefined');
     if (!supported) {
-      enabled = false;
+      voiceEnabled = false;
       return false;
     }
     synth = window.speechSynthesis;
@@ -152,12 +153,20 @@
 
   // Speak text
   function speak(text, interrupt = true) {
-    if (!enabled || !supported || !text) return;
+    if (!text) return;
+    // At least one output method must be enabled
+    if (!voiceEnabled && !ariaEnabled) return;
+
     lastText = text;
 
-    // Update ARIA live region
-    const region = document.getElementById('live-region');
-    if (region) { region.textContent = ''; setTimeout(() => { region.textContent = text; }, 50); }
+    // Update ARIA live region (for screen readers)
+    if (ariaEnabled) {
+      const region = document.getElementById('live-region');
+      if (region) { region.textContent = ''; setTimeout(() => { region.textContent = text; }, 50); }
+    }
+
+    // Web API speech synthesis
+    if (!voiceEnabled || !supported) return;
 
     if (!synth && window.speechSynthesis) synth = window.speechSynthesis;
     if (!synth) return;
@@ -208,34 +217,77 @@
     if (display) display.textContent = rate.toFixed(1);
   }
 
-  // Toggle
-  function toggle() {
+  // Toggle voice (Web API speech synthesis)
+  function toggleVoice() {
     if (!supported) return false;
-    enabled = !enabled;
-    updateSpeechButton();
-    if (enabled) speak('Speech enabled');
-    return enabled;
+    voiceEnabled = !voiceEnabled;
+    updateVoiceButton();
+    if (voiceEnabled) speak('Voice enabled');
+    return voiceEnabled;
   }
 
-  function updateSpeechButton() {
-    const btn = document.getElementById('toggle-speech-btn');
+  // Toggle ARIA (screen reader announcements)
+  function toggleAria() {
+    ariaEnabled = !ariaEnabled;
+    updateAriaButton();
+    // Can't speak if voice is off, just update button
+    if (ariaEnabled && voiceEnabled) speak('Screen reader announcements enabled');
+    return ariaEnabled;
+  }
+
+  // Legacy toggle (toggles both for backwards compatibility)
+  function toggle() {
+    if (!supported) return false;
+    const newState = !voiceEnabled;
+    voiceEnabled = newState;
+    ariaEnabled = newState;
+    updateVoiceButton();
+    updateAriaButton();
+    if (voiceEnabled) speak('Speech enabled');
+    return voiceEnabled;
+  }
+
+  function updateVoiceButton() {
+    const btn = document.getElementById('toggle-voice-btn');
     if (btn) {
-      btn.textContent = enabled ? 'Speech: On' : 'Speech: Off';
-      btn.setAttribute('aria-pressed', enabled.toString());
+      btn.textContent = voiceEnabled ? 'Voice: On' : 'Voice: Off';
+      btn.setAttribute('aria-pressed', voiceEnabled.toString());
+    }
+    // Also update legacy button if it exists
+    const legacyBtn = document.getElementById('toggle-speech-btn');
+    if (legacyBtn) {
+      legacyBtn.textContent = voiceEnabled ? 'Speech: On' : 'Speech: Off';
+      legacyBtn.setAttribute('aria-pressed', voiceEnabled.toString());
+    }
+  }
+
+  function updateAriaButton() {
+    const btn = document.getElementById('toggle-aria-btn');
+    if (btn) {
+      btn.textContent = ariaEnabled ? 'ARIA: On' : 'ARIA: Off';
+      btn.setAttribute('aria-pressed', ariaEnabled.toString());
     }
   }
 
   // Getters
-  function isEnabled() { return enabled; }
+  function isEnabled() { return voiceEnabled || ariaEnabled; }
+  function isVoiceEnabled() { return voiceEnabled; }
+  function isAriaEnabled() { return ariaEnabled; }
   function isSupported() { return supported; }
   function getRate() { return rate; }
   function getVoiceName() { return voiceName; }
-  function getSettings() { return { voiceName, rate, enabled }; }
+  function getSettings() { return { voiceName, rate, voiceEnabled, ariaEnabled, enabled: voiceEnabled }; }
   function restoreSettings(s) {
     if (!s) return;
     if (s.voiceName) { voiceName = s.voiceName; populateSelectors(); }
     if (s.rate) setRate(s.rate);
-    if (s.enabled !== undefined) enabled = s.enabled;
+    // Support both new and legacy settings
+    if (s.voiceEnabled !== undefined) voiceEnabled = s.voiceEnabled;
+    else if (s.enabled !== undefined) voiceEnabled = s.enabled;
+    if (s.ariaEnabled !== undefined) ariaEnabled = s.ariaEnabled;
+    else if (s.enabled !== undefined) ariaEnabled = s.enabled; // Legacy: both were toggled together
+    updateVoiceButton();
+    updateAriaButton();
   }
 
   window.RiskSpeech = {
@@ -246,12 +298,18 @@
     updateVoiceFromUI,
     setRate,
     toggle,
+    toggleVoice,
+    toggleAria,
     isEnabled,
+    isVoiceEnabled,
+    isAriaEnabled,
     isSupported,
     getRate,
     getVoiceName,
     getSettings,
     restoreSettings,
-    populateVoiceSelect
+    populateVoiceSelect,
+    updateVoiceButton,
+    updateAriaButton
   };
 })();
