@@ -127,7 +127,7 @@
       case 'game_created':
         currentGameId = message.game.id;
         myPlayerIndex = message.yourPlayerIndex;
-        isHost = true;
+        updateHostStatus(message.game);
         if (callbacks.onGameCreated) {
           callbacks.onGameCreated(message.game, myPlayerIndex);
         }
@@ -136,19 +136,21 @@
       case 'game_joined':
         currentGameId = message.game.id;
         myPlayerIndex = message.yourPlayerIndex;
-        isHost = false;
+        updateHostStatus(message.game);
         if (callbacks.onGameJoined) {
           callbacks.onGameJoined(message.game, myPlayerIndex);
         }
         break;
 
       case 'player_joined':
+        updateHostStatus(message.game);
         if (callbacks.onPlayerJoined) {
           callbacks.onPlayerJoined(message.playerName, message.clientId, message.game);
         }
         break;
 
       case 'player_left':
+        updateHostStatus(message.game);
         if (callbacks.onPlayerLeft) {
           callbacks.onPlayerLeft(message.playerName, message.clientId, message.game);
         }
@@ -157,19 +159,21 @@
       case 'game_rejoined':
         currentGameId = message.game.id;
         myPlayerIndex = message.yourPlayerIndex;
-        isHost = false;  // Rejoining player is never the host
+        updateHostStatus(message.game);
         if (callbacks.onGameRejoined) {
           callbacks.onGameRejoined(message.game, myPlayerIndex, message.gameState);
         }
         break;
 
       case 'player_rejoined':
+        updateHostStatus(message.game);
         if (callbacks.onPlayerRejoined) {
           callbacks.onPlayerRejoined(message.playerName, message.clientId, message.playerIndex, message.game);
         }
         break;
 
       case 'game_started':
+        updateHostStatus(message.game);
         if (callbacks.onGameStarted) {
           callbacks.onGameStarted(message.game, message.initialState, message.playerAssignments);
         }
@@ -208,6 +212,14 @@
 
       default:
         console.log('Unknown message type:', message.type);
+    }
+  }
+
+  function updateHostStatus(game) {
+    if (game && game.hostId) {
+      isHost = game.hostId === clientId;
+    } else {
+      isHost = false;
     }
   }
 

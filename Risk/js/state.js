@@ -29,7 +29,8 @@
     paused: false,
     stats: {},
     // Multiplayer properties
-    multiplayerMode: false
+    multiplayerMode: false,
+    multiplayerHost: false
   };
 
   // Game log
@@ -60,6 +61,7 @@
     G.paused = false;
     G.stats = {};
     G.multiplayerMode = false;
+    G.multiplayerHost = false;
     gameLog.length = 0;
   }
 

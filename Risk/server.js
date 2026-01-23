@@ -66,6 +66,24 @@ class GameLobby {
     this.currentPlayerClientId = null;  // Which client is currently playing
   }
 
+  getConnectedClientIds() {
+    return Array.from(this.players.values())
+      .filter(player => player.connected)
+      .map(player => player.id);
+  }
+
+  ensureHost() {
+    if (this.hostId) return;
+    const [nextHost] = this.getConnectedClientIds();
+    this.hostId = nextHost || null;
+  }
+
+  updateHostOnDisconnect(clientId) {
+    if (this.hostId !== clientId) return;
+    const [nextHost] = this.getConnectedClientIds();
+    this.hostId = nextHost || null;
+  }
+
   addPlayer(clientId, playerName) {
     if (this.players.size >= this.humanPlayers) return false;
 
@@ -78,6 +96,9 @@ class GameLobby {
       connected: true
     });
     this.playerSlots.push({ clientId, playerIndex });
+    if (!this.hostId) {
+      this.hostId = clientId;
+    }
     return true;
   }
 
@@ -98,6 +119,12 @@ class GameLobby {
           clientId: cid,
           playerIndex: p.playerIndex
         }));
+        if (this.hostId === clientId) {
+          const [nextHost] = this.getConnectedClientIds();
+          this.hostId = nextHost || null;
+        }
+      } else if (!player.connected && this.hostId === clientId) {
+        this.updateHostOnDisconnect(clientId);
       }
     }
     this.spectators.delete(clientId);
@@ -150,6 +177,9 @@ class GameLobby {
         this.playerSlots = this.playerSlots.map(s =>
           s.playerIndex === playerIndex ? { clientId: newClientId, playerIndex } : s
         );
+        if (!this.hostId || this.hostId === oldClientId) {
+          this.hostId = newClientId;
+        }
         return player;
       }
     }
@@ -169,6 +199,7 @@ class GameLobby {
       createdAt: this.createdAt,
       canRejoin: this.canRejoin(),
       openSlots: this.getOpenSlots(),
+      hostId: this.hostId,
       players: Array.from(this.players.values()).map(p => ({
         name: p.name,
         playerIndex: p.playerIndex,

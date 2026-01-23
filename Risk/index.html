@@ -484,6 +484,10 @@
     let pendingGameConfig = null;
     let playerAssignments = {}; // Maps clientId -> playerIndex
 
+    function syncHostStatus() {
+      G.multiplayerHost = network.getIsHost();
+    }
+
     function updateHumanPlayersOptions() {
       const numPlayers = parseInt(document.getElementById('num-players').value);
       const gameMode = document.getElementById('game-mode').value;
@@ -620,21 +624,25 @@
 
     network.setCallback('onGameCreated', (game, playerIndex) => {
       myAssignedPlayerIndex = playerIndex;
+      syncHostStatus();
       showLobbyScreen(game, true);
     });
 
     network.setCallback('onGameJoined', (game, playerIndex) => {
       myAssignedPlayerIndex = playerIndex;
+      syncHostStatus();
       showLobbyScreen(game, false);
     });
 
     network.setCallback('onPlayerJoined', (playerName, clientId, game) => {
+      syncHostStatus();
       speech.speak(`${playerName} joined the game.`);
       log(`${playerName} joined the game`);
       updateLobbyPlayers(game);
     });
 
     network.setCallback('onPlayerLeft', (playerName, clientId, game) => {
+      syncHostStatus();
       speech.speak(`${playerName} left the game.`);
       log(`${playerName} left the game`);
       if (game) {
@@ -644,12 +652,14 @@
 
     network.setCallback('onGameRejoined', (game, playerIndex, gameState) => {
       myAssignedPlayerIndex = playerIndex;
+      syncHostStatus();
       speech.speak(`Rejoined game as player ${playerIndex + 1}.`);
       log(`Rejoined game ${game.name}`);
       rejoinMultiplayerGame(game, playerIndex, gameState);
     });
 
     network.setCallback('onPlayerRejoined', (playerName, clientId, playerIndex, game) => {
+      syncHostStatus();
       speech.speak(`${playerName} has reconnected.`);
       log(`${playerName} reconnected`);
       // Update the player as connected in our local state
@@ -662,6 +672,7 @@
 
     network.setCallback('onGameStarted', (game, initialState, assignments) => {
       playerAssignments = assignments;
+      syncHostStatus();
       startMultiplayerGameFromServer(game, initialState, assignments);
     });
 
@@ -902,6 +913,7 @@
       // Restore the game state
       restore(gameState);
       G.multiplayerMode = true;
+      syncHostStatus();
 
       // Mark which player is local (me) vs remote
       for (let i = 0; i < G.players.length; i++) {
@@ -935,6 +947,7 @@
     // Leave the lobby
     function leaveLobby() {
       network.leaveGame();
+      G.multiplayerHost = false;
       document.getElementById('lobby-screen').classList.add('hidden');
       document.getElementById('setup-screen').classList.remove('hidden');
       speech.speak('Left the lobby.');
@@ -974,6 +987,7 @@
       G.gameMode = pendingGameConfig.gameMode;
       G.startTime = Date.now();
       G.multiplayerMode = true;
+      G.multiplayerHost = true;
 
       // Initialize players with multiplayer setup
       initPlayersMultiplayer(pendingGameConfig.numPlayers, pendingGameConfig.numHumans, pendingGameConfig.aiStrategies);
@@ -1100,6 +1114,7 @@
       restore(initialState);
       G.aiDelay = lobbySettings.aiDelay;
       G.multiplayerMode = true;
+      syncHostStatus();
 
       // Update player names from game info
       for (const serverPlayer of game.players) {
@@ -1355,6 +1370,7 @@
       restore(state);
       G.humanPlayerId = myAssignedPlayerIndex;
       G.multiplayerMode = true;
+      syncHostStatus();
       ui.updateUI();
     }
 
@@ -1364,7 +1380,7 @@
       const player = currentPlayer();
       if (player && !player.isHuman && G.phase !== 'gameover') {
         // In multiplayer, only run AI if we're the host
-        if (G.multiplayerMode && !network.getIsHost()) {
+        if (G.multiplayerMode && !G.multiplayerHost) {
           // Not the host - don't run AI, wait for host to broadcast actions
           return;
         }

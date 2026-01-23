@@ -384,7 +384,7 @@
     G.currentTerritoryIdx = TERRITORIES.findIndex(t => G.territories[t.name].owner === null);
     updateUI();
     speech.speak(`Claiming phase. ${currentPlayer().name}, select an unclaimed territory.`);
-    if (!currentPlayer().isHuman) setTimeout(aiTurn, G.aiDelay);
+    if (!currentPlayer().isHuman && shouldRunAI()) setTimeout(aiTurn, G.aiDelay);
   }
 
   function startSetupReinforce() {
@@ -395,7 +395,7 @@
     G.currentTerritoryIdx = TERRITORIES.findIndex(t => G.territories[t.name].owner === G.currentPlayer);
     updateUI();
     speech.speak(`Setup. ${currentPlayer().name}, place armies. ${G.setupArmies[currentPlayer().id]} remaining. Place up to 3 this round.`);
-    if (!currentPlayer().isHuman) setTimeout(aiTurn, G.aiDelay);
+    if (!currentPlayer().isHuman && shouldRunAI()) setTimeout(aiTurn, G.aiDelay);
   }
 
   function nextSetupPlayer() {
@@ -405,7 +405,7 @@
     G.currentPlayer = next;
     G.setupTroopsPlacedThisRound = 0;  // Reset counter for new player's round
     updateUI();
-    if (!currentPlayer().isHuman) setTimeout(aiTurn, G.aiDelay / 2);
+    if (!currentPlayer().isHuman && shouldRunAI()) setTimeout(aiTurn, G.aiDelay / 2);
     else speech.speak(`${currentPlayer().name}'s turn. ${G.setupArmies[currentPlayer().id]} armies to place. Up to 3 this round.`);
   }
 
@@ -440,7 +440,7 @@
     }
     log(`${player.name} receives ${G.armiesToPlace} armies`);
     speech.speak(ann);
-    if (!player.isHuman) setTimeout(aiTurn, G.aiDelay);
+    if (!player.isHuman && shouldRunAI()) setTimeout(aiTurn, G.aiDelay);
   }
 
   function startAttackPhase() {
@@ -450,14 +450,14 @@
     if (idx >= 0) G.currentTerritoryIdx = idx;
     updateUI();
     speech.speak(`Attack phase. Select territory to attack from, or press E to fortify.`);
-    if (!player.isHuman) setTimeout(aiTurn, G.aiDelay);
+    if (!player.isHuman && shouldRunAI()) setTimeout(aiTurn, G.aiDelay);
   }
 
   function startFortifyPhase() {
     G.phase = 'fortify'; G.fortifyFrom = null;
     updateUI();
     speech.speak(`Fortify phase. Select territory to move from, or press E to end turn.`);
-    if (!currentPlayer().isHuman) setTimeout(aiTurn, G.aiDelay);
+    if (!currentPlayer().isHuman && shouldRunAI()) setTimeout(aiTurn, G.aiDelay);
   }
 
   function nextPlayer() {
@@ -582,6 +582,7 @@
 
   // Schedule AI action with pause support
   function scheduleAI(action, delay) {
+    if (!shouldRunAI()) return;
     if (G.paused) {
       G.pendingAIAction = { action, delay };
       return;
@@ -589,8 +590,13 @@
     setTimeout(action, delay);
   }
 
+  function shouldRunAI() {
+    return !G.multiplayerMode || G.multiplayerHost;
+  }
+
   // Resume AI when unpaused
   function resumeAI() {
+    if (!shouldRunAI()) return;
     if (G.pendingAIAction) {
       const { action, delay } = G.pendingAIAction;
       G.pendingAIAction = null;
@@ -602,6 +608,7 @@
   }
 
   function aiTurn() {
+    if (!shouldRunAI()) return;
     const player = currentPlayer();
     if (player.isHuman || G.paused) return;
     const strategy = STRATEGIES[player.strategy];
