@@ -2274,10 +2274,21 @@
       if (ui.isReportActive()) { if (e.key === 'Escape' || e.key === 'Enter') ui.hideReport(); return; }
       if (!document.getElementById('help-overlay').classList.contains('hidden')) { if (e.key === 'Escape' || e.key === '?') ui.hideHelp(); return; }
 
+      // Allow browser shortcuts with modifier keys (Cmd+L, Ctrl+L, Alt+key, etc.)
+      // Shift is allowed as it's used for game functions like Shift+1-6
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+
       const key = e.key.toLowerCase();
+
+      // Help can be accessed from any screen
+      if (key === '?') { e.preventDefault(); ui.showHelp(); return; }
+
+      // All other game keys only work when game screen is visible
+      const gameScreen = document.getElementById('game-screen');
+      if (!gameScreen || gameScreen.classList.contains('hidden')) return;
+
       if (NAV_KEYS[key]) { e.preventDefault(); navigate(NAV_KEYS[key]); return; }
       if (key === '/' || key === 'g') { e.preventDefault(); ui.showQuickJump(); return; }
-      if (key === '?') { e.preventDefault(); ui.showHelp(); return; }
       if (key === '-' || e.code === 'Minus') { ui.announceClaimReport(); return; }
       const digitMatch = e.code?.match(/^Digit([1-6])$/);
       if (digitMatch) {

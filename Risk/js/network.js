@@ -7,6 +7,7 @@
   let myPlayerIndex = null;
   let isHost = false;
   let reconnectAttempts = 0;
+  let wasEverConnected = false; // Track if we ever successfully connected
   const MAX_RECONNECT_ATTEMPTS = 5;
 
   // Callbacks for various events
@@ -28,10 +29,13 @@
   };
 
   // Check if we're running on localhost with a server
+  // The WebSocket server always runs on port 3000, regardless of
+  // what port the web page is served from (e.g., 8000 for python http.server)
   function getServerUrl() {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = window.location.hostname || 'localhost';
-    const port = window.location.port || '3000';
+    // Always use port 3000 for the WebSocket server - it's separate from the web server
+    const port = '3000';
     return `${protocol}//${host}:${port}`;
   }
 
@@ -43,18 +47,29 @@
   // Connect to the WebSocket server
   function connect(onSuccess, onError) {
     if (ws && ws.readyState === WebSocket.OPEN) {
+      console.log('[Network] Already connected, skipping connect()');
       if (onSuccess) onSuccess();
       return;
     }
 
+    // Clean up any existing connection in a bad state
+    if (ws) {
+      console.log('[Network] Cleaning up old WebSocket in state:', ws.readyState);
+      ws.onclose = null; // Prevent triggering disconnect callbacks
+      ws.onerror = null;
+      ws.close();
+      ws = null;
+    }
+
     const serverUrl = getServerUrl();
-    console.log('Connecting to server:', serverUrl);
+    console.log('[Network] Connecting to server:', serverUrl);
+    console.log('[Network] Page URL:', window.location.href);
 
     try {
       ws = new WebSocket(serverUrl);
 
       ws.onopen = () => {
-        console.log('Connected to multiplayer server');
+        console.log('[Network] WebSocket opened successfully');
         reconnectAttempts = 0;
         if (onSuccess) onSuccess();
       };
@@ -62,35 +77,39 @@
       ws.onmessage = (event) => {
         try {
           const message = JSON.parse(event.data);
+          console.log('[Network] Received:', message.type);
           handleMessage(message);
         } catch (e) {
-          console.error('Failed to parse message:', e);
+          console.error('[Network] Failed to parse message:', e);
         }
       };
 
       ws.onclose = (event) => {
-        console.log('Disconnected from server:', event.code, event.reason);
-        if (callbacks.onDisconnected) {
+        console.log('[Network] WebSocket closed - code:', event.code, 'reason:', event.reason || '(none)', 'wasClean:', event.wasClean);
+        console.log('[Network] wasEverConnected:', wasEverConnected);
+
+        // Only announce disconnection if we were ever actually connected
+        if (wasEverConnected && callbacks.onDisconnected) {
           callbacks.onDisconnected(event.code, event.reason);
         }
 
         // Attempt reconnect if we were in a game
         if (currentGameId && reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
           reconnectAttempts++;
-          console.log(`Attempting reconnect (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})...`);
+          console.log(`[Network] Attempting reconnect (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})...`);
           setTimeout(() => connect(), 2000 * reconnectAttempts);
         }
       };
 
       ws.onerror = (error) => {
-        console.error('WebSocket error:', error);
+        console.error('[Network] WebSocket error:', error);
+        console.log('[Network] This usually means the server is not running on port 3000.');
+        console.log('[Network] Start the server with: cd Risk && npm start');
         if (onError) onError(error);
-        if (callbacks.onError) {
-          callbacks.onError('Connection failed. Server may not be running.');
-        }
+        // Don't call callbacks.onError here - it's too noisy for expected "server not running" case
       };
     } catch (e) {
-      console.error('Failed to connect:', e);
+      console.error('[Network] Failed to create WebSocket:', e);
       if (onError) onError(e);
     }
   }
@@ -105,6 +124,7 @@
     currentGameId = null;
     myPlayerIndex = null;
     isHost = false;
+    wasEverConnected = false;
   }
 
   // Handle incoming messages
@@ -112,6 +132,7 @@
     switch (message.type) {
       case 'connected':
         clientId = message.clientId;
+        wasEverConnected = true;
         console.log('Assigned client ID:', clientId);
         if (callbacks.onConnected) {
           callbacks.onConnected(clientId, message.games);
