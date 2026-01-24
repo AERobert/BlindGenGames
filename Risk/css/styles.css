@@ -57,6 +57,9 @@ button:disabled { background: #666; cursor: not-allowed; }
 .nav-compass button { width: 80px; height: 60px; padding: 5px; font-size: 0.75rem; display: flex; flex-direction: column; align-items: center; justify-content: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .nav-compass button span { font-size: 1rem; font-weight: bold; }
 .nav-compass .center-btn { background: var(--success); color: #1a1a2e; }
+.quick-jump-btn { display: flex; align-items: center; justify-content: center; gap: 8px; width: 250px; margin: 10px auto; padding: 12px 20px; font-size: 1rem; background: var(--accent); color: #1a1a2e; border: none; border-radius: 8px; cursor: pointer; }
+.quick-jump-btn span { font-weight: bold; background: rgba(0,0,0,0.2); padding: 2px 8px; border-radius: 4px; }
+.quick-jump-btn:hover { background: var(--success); }
 
 /* Side Panel */
 .side-panel { display: flex; flex-direction: column; gap: 15px; }

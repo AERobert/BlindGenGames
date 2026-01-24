@@ -171,7 +171,17 @@
     const container = document.getElementById('quick-jump-matches');
     container.innerHTML = '';
     const normalized = query.trim().toLowerCase();
-    quickJumpMatches = TERRITORIES.filter(t => t.name.toLowerCase().includes(normalized)).slice(0, 10);
+    // Filter territories that match the query
+    const matches = TERRITORIES.filter(t => t.name.toLowerCase().includes(normalized));
+    // Sort to prioritize matches that start with the query
+    matches.sort((a, b) => {
+      const aStarts = a.name.toLowerCase().startsWith(normalized);
+      const bStarts = b.name.toLowerCase().startsWith(normalized);
+      if (aStarts && !bStarts) return -1;
+      if (!aStarts && bStarts) return 1;
+      return a.name.localeCompare(b.name);
+    });
+    quickJumpMatches = matches.slice(0, 10);
     if (quickJumpMatches.length === 0) {
       container.textContent = normalized ? 'No matches.' : 'Type to search.';
       quickJumpIndex = -1;

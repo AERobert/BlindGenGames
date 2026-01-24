@@ -170,16 +170,17 @@
           </div>
 
           <nav class="nav-compass" aria-label="Territory Navigation">
-            <button id="nav-northwest"><span>U</span>NW</button>
-            <button id="nav-north"><span>I</span>N</button>
-            <button id="nav-northeast"><span>O</span>NE</button>
-            <button id="nav-west"><span>J</span>W</button>
+            <button id="nav-northwest" onclick="navigate('northwest')"><span>U</span>NW</button>
+            <button id="nav-north" onclick="navigate('north')"><span>I</span>N</button>
+            <button id="nav-northeast" onclick="navigate('northeast')"><span>O</span>NE</button>
+            <button id="nav-west" onclick="navigate('west')"><span>J</span>W</button>
             <button class="center-btn" onclick="ui.announceTerritory()"><span>K</span>Here</button>
-            <button id="nav-east"><span>L</span>E</button>
-            <button id="nav-southwest"><span>N</span>SW</button>
-            <button id="nav-south"><span>M</span>S</button>
-            <button id="nav-southeast"><span>,</span>SE</button>
+            <button id="nav-east" onclick="navigate('east')"><span>L</span>E</button>
+            <button id="nav-southwest" onclick="navigate('southwest')"><span>N</span>SW</button>
+            <button id="nav-south" onclick="navigate('south')"><span>M</span>S</button>
+            <button id="nav-southeast" onclick="navigate('southeast')"><span>,</span>SE</button>
           </nav>
+          <button class="quick-jump-btn" onclick="ui.showQuickJump()"><span>G</span> Go to Territory</button>
 
           <section id="phase-actions" aria-label="Phase actions"></section>
         </div>
