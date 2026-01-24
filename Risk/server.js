@@ -5,6 +5,7 @@ const WebSocket = require('ws');
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 
 const PORT = process.env.PORT || 3000;
 
@@ -624,8 +625,26 @@ function handleChat(ws, clientInfo, message) {
   });
 }
 
+// Get local network IP address
+function getLocalIP() {
+  const interfaces = os.networkInterfaces();
+  for (const name of Object.keys(interfaces)) {
+    for (const iface of interfaces[name]) {
+      // Skip internal and non-IPv4 addresses
+      if (iface.family === 'IPv4' && !iface.internal) {
+        return iface.address;
+      }
+    }
+  }
+  return null;
+}
+
 // Start server
 server.listen(PORT, () => {
+  const localIP = getLocalIP();
   console.log(`Risk Multiplayer Server running on http://localhost:${PORT}`);
+  if (localIP) {
+    console.log(`Network access: http://${localIP}:${PORT}`);
+  }
   console.log('Open this URL in multiple browser windows to play!');
 });
