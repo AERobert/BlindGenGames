@@ -25,7 +25,10 @@
     onGameAction: null,
     onSyncState: null,
     onChat: null,
-    onError: null
+    onError: null,
+    onGameSettingsUpdated: null,
+    onGameDeleted: null,
+    onGameEnded: null
   };
 
   // Check if we're running on localhost with a server
@@ -231,6 +234,31 @@
         isHost = false;
         break;
 
+      case 'game_settings_updated':
+        updateHostStatus(message.game);
+        if (callbacks.onGameSettingsUpdated) {
+          callbacks.onGameSettingsUpdated(message.game);
+        }
+        break;
+
+      case 'game_deleted':
+        currentGameId = null;
+        myPlayerIndex = null;
+        isHost = false;
+        if (callbacks.onGameDeleted) {
+          callbacks.onGameDeleted(message.gameId);
+        }
+        break;
+
+      case 'game_ended':
+        currentGameId = null;
+        myPlayerIndex = null;
+        isHost = false;
+        if (callbacks.onGameEnded) {
+          callbacks.onGameEnded(message.gameId, message.reason);
+        }
+        break;
+
       default:
         console.log('Unknown message type:', message.type);
     }
@@ -329,6 +357,28 @@
     });
   }
 
+  // Update game settings (host only)
+  function updateGameSettings(settings) {
+    return send({
+      type: 'update_game_settings',
+      settings
+    });
+  }
+
+  // Delete the game (host only)
+  function deleteGame() {
+    return send({
+      type: 'delete_game'
+    });
+  }
+
+  // End the game (host only, during gameplay)
+  function endGame() {
+    return send({
+      type: 'end_game'
+    });
+  }
+
   // Set callbacks
   function setCallback(name, fn) {
     if (callbacks.hasOwnProperty(name)) {
@@ -364,6 +414,9 @@
     startGame,
     sendAction,
     syncState,
-    sendChat
+    sendChat,
+    updateGameSettings,
+    deleteGame,
+    endGame
   };
 })();

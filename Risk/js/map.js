@@ -381,36 +381,62 @@
       continentGroups[territory.continent].appendChild(group);
     }
 
-    // Add connection lines between territories (special routes across water)
+    // Add connection lines between all adjacent territories
     const connectionsGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
     connectionsGroup.setAttribute('class', 'connections');
-    connectionsGroup.setAttribute('opacity', '0.4');
 
-    // Special connections (across map)
-    const specialConnections = [
-      ["Alaska", "Kamchatka"],
-      ["Greenland", "Iceland"],
-      ["Brazil", "North Africa"],
-      ["Western Europe", "North Africa"],
-      ["East Africa", "Middle East"],
-      ["Siam", "Indonesia"],
-      ["Eastern Australia", "New Guinea"],
-      ["Indonesia", "New Guinea"]
-    ];
+    // Track which connections we've already drawn (to avoid duplicates)
+    const drawnConnections = new Set();
 
-    for (const [from, to] of specialConnections) {
-      const fromPath = TERRITORY_PATHS[from];
-      const toPath = TERRITORY_PATHS[to];
-      if (fromPath && toPath) {
+    // Draw lines between all adjacent territories
+    for (const territory of TERRITORIES) {
+      const fromPath = TERRITORY_PATHS[territory.name];
+      if (!fromPath) continue;
+
+      for (const neighborName of territory.borders) {
+        // Create a unique key for this connection (sorted to avoid duplicates)
+        const connectionKey = [territory.name, neighborName].sort().join('|');
+        if (drawnConnections.has(connectionKey)) continue;
+        drawnConnections.add(connectionKey);
+
+        const toPath = TERRITORY_PATHS[neighborName];
+        if (!toPath) continue;
+
         const line = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-        // Use curved lines for water routes
-        const midX = (fromPath.labelX + toPath.labelX) / 2;
-        const midY = (fromPath.labelY + toPath.labelY) / 2 - 20;
-        line.setAttribute('d', `M ${fromPath.labelX} ${fromPath.labelY} Q ${midX} ${midY} ${toPath.labelX} ${toPath.labelY}`);
-        line.setAttribute('stroke', '#88aacc');
-        line.setAttribute('stroke-width', '2');
+
+        // Check if this is a water connection (special routes)
+        const waterConnections = new Set([
+          "Alaska|Kamchatka",
+          "Greenland|Iceland",
+          "Brazil|North Africa",
+          "North Africa|Western Europe",
+          "East Africa|Middle East",
+          "Indonesia|Siam",
+          "Eastern Australia|New Guinea",
+          "Indonesia|New Guinea"
+        ]);
+
+        const isWaterConnection = waterConnections.has(connectionKey);
+
+        if (isWaterConnection) {
+          // Curved dashed lines for water routes
+          const midX = (fromPath.labelX + toPath.labelX) / 2;
+          const midY = (fromPath.labelY + toPath.labelY) / 2 - 20;
+          line.setAttribute('d', `M ${fromPath.labelX} ${fromPath.labelY} Q ${midX} ${midY} ${toPath.labelX} ${toPath.labelY}`);
+          line.setAttribute('stroke', '#88aacc');
+          line.setAttribute('stroke-width', '2');
+          line.setAttribute('stroke-dasharray', '8,4');
+          line.setAttribute('opacity', '0.5');
+        } else {
+          // Straight subtle lines for land connections
+          line.setAttribute('d', `M ${fromPath.labelX} ${fromPath.labelY} L ${toPath.labelX} ${toPath.labelY}`);
+          line.setAttribute('stroke', '#556677');
+          line.setAttribute('stroke-width', '1');
+          line.setAttribute('opacity', '0.3');
+        }
+
         line.setAttribute('fill', 'none');
-        line.setAttribute('stroke-dasharray', '8,4');
+        line.setAttribute('class', isWaterConnection ? 'water-connection' : 'land-connection');
         connectionsGroup.appendChild(line);
       }
     }

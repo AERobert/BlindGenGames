@@ -30,8 +30,8 @@
     if (phaseEl) phaseEl.textContent = G.phase;
     if (playerEl) { playerEl.textContent = player.name; playerEl.style.color = player.color; }
     if (armiesEl) {
-      if (G.phase === 'reinforce' && G.armiesToPlace > 0) { armiesEl.textContent = `${G.armiesToPlace} armies to place`; armiesEl.classList.remove('hidden'); }
-      else if (G.phase === 'setup-reinforce') { armiesEl.textContent = `${G.setupArmies[player.id] || 0} armies remaining`; armiesEl.classList.remove('hidden'); }
+      if (G.phase === 'reinforce' && G.armiesToPlace > 0) { armiesEl.textContent = `${G.armiesToPlace} troops to place`; armiesEl.classList.remove('hidden'); }
+      else if (G.phase === 'setup-reinforce') { armiesEl.textContent = `${G.setupArmies[player.id] || 0} troops remaining`; armiesEl.classList.remove('hidden'); }
       else armiesEl.classList.add('hidden');
     }
   }
@@ -52,7 +52,7 @@
       const currentLabel = isCurrent ? ' - Current turn' : '';
       const eliminatedLabel = player.eliminated ? ' - Eliminated' : '';
       li.innerHTML = `<span class="player-indicator" style="background:${player.color}" aria-hidden="true"></span><span>${player.name}${youLabel}${player.isHuman ? '' : ` (${strategyLabel})`}</span><span style="margin-left:auto">${territories.length}T/${troops}A</span>`;
-      li.setAttribute('aria-label', `${player.name}${youLabel}${player.isHuman ? '' : `, ${strategyLabel}`}, ${territories.length} territories, ${troops} armies${currentLabel}${eliminatedLabel}`);
+      li.setAttribute('aria-label', `${player.name}${youLabel}${player.isHuman ? '' : `, ${strategyLabel}`}, ${territories.length} territories, ${troops} troops${currentLabel}${eliminatedLabel}`);
       if (isCurrent) li.classList.add('current');
       if (player.eliminated) li.classList.add('eliminated');
       list.appendChild(li);
@@ -118,8 +118,8 @@
 
     const btns = {
       'claim': '<button onclick="game.claimTerritory()">Claim (Space)</button>',
-      'setup-reinforce': '<button onclick="game.placeArmy()">Place Armies (Space)</button>',
-      'reinforce': '<button onclick="game.placeArmy()">Place Armies (Space)</button><button onclick="game.tradeCards()">Trade (T)</button><button onclick="game.endReinforce()">End (E)</button>',
+      'setup-reinforce': '<button onclick="game.placeArmy()">Place Troops (Space)</button>',
+      'reinforce': '<button onclick="game.placeArmy()">Place Troops (Space)</button><button onclick="game.tradeCards()">Trade (T)</button><button onclick="game.endReinforce()">End (E)</button>',
       'attack': '<button onclick="game.selectAttackSource()">Select (Space)</button><button onclick="game.executeAttack()">Attack (Enter)</button><button onclick="game.cancelAttack()">Cancel (X)</button><button onclick="game.endAttack()">End (E)</button>',
       'fortify': '<button onclick="game.selectFortifySource()">Select (Space)</button><button onclick="game.executeFortify()">Move (Enter)</button><button onclick="game.cancelFortify()">Cancel (X)</button><button onclick="game.endTurn()">End (E)</button>'
     };
@@ -426,7 +426,7 @@
   function announcePhase() {
     const p = currentPlayer();
     let ann = `Turn ${G.turnNumber}. ${p.name}'s turn. Phase: ${G.phase}. `;
-    if (G.phase === 'reinforce' && G.armiesToPlace > 0) ann += `${G.armiesToPlace} armies to place. `;
+    if (G.phase === 'reinforce' && G.armiesToPlace > 0) ann += `${G.armiesToPlace} troops to place. `;
     if (G.attackFrom) ann += `Attacking from ${G.attackFrom}. `;
     if (G.fortifyFrom) ann += `Moving from ${G.fortifyFrom}. `;
     speech.speak(ann);

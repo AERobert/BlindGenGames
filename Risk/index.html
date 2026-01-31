@@ -103,6 +103,23 @@
       <h1>Game Lobby</h1>
       <h2 id="lobby-game-name">Waiting for Players...</h2>
       <p id="lobby-status">Waiting for players to join</p>
+      <p id="lobby-game-id" style="font-size: 0.9rem; color: #888;"></p>
+
+      <!-- Host Controls (only shown to host) -->
+      <div id="lobby-host-controls" class="setup-section hidden">
+        <h3>Host Settings</h3>
+        <label for="lobby-edit-game-name">Game Name:</label>
+        <input type="text" id="lobby-edit-game-name" maxlength="50" onchange="game.updateLobbyGameName()">
+        <label for="lobby-edit-player-count">Total Players:</label>
+        <select id="lobby-edit-player-count" onchange="game.updateLobbyPlayerCount()">
+          <option value="2">2 Players</option>
+          <option value="3">3 Players</option>
+          <option value="4">4 Players</option>
+          <option value="5">5 Players</option>
+          <option value="6">6 Players</option>
+        </select>
+        <button class="btn-secondary" style="margin-top: 10px; background: #e74c3c;" onclick="game.deleteGame()">Delete Game</button>
+      </div>
 
       <div class="lobby-info">
         <div id="lobby-players" class="lobby-players">
@@ -146,6 +163,7 @@
           <button class="btn-small" onclick="game.showHelp()">Help (?)</button>
           <button class="btn-small" id="toggle-debug-btn" aria-pressed="false" onclick="game.toggleDebug()">Debug: Off</button>
           <button class="btn-small" onclick="game.downloadDebugLog()">Download Log</button>
+          <button class="btn-small hidden" id="end-game-btn" style="background: #e74c3c;" onclick="game.endMultiplayerGame()">End Game</button>
         </div>
       </header>
 
@@ -300,7 +318,7 @@
         Valid sets: 3 of same type, one of each type (Infantry+Cavalry+Artillery), or 2 of any type + Wild.<br>
         Press <strong>T</strong> during reinforcement to trade manually (3-4 cards).<br>
         At <strong>5+ cards</strong>, you must trade &mdash; the game auto-trades for you.<br>
-        Trading a card for a territory you own places +2 armies directly on that territory.
+        Trading a card for a territory you own places +2 troops directly on that territory.
       </p>
       <div class="dialog-buttons"><button onclick="ui.hideHelp()">Close (Esc)</button></div>
     </div>
@@ -778,6 +796,46 @@
       speech.speak('Disconnected from server.');
     });
 
+    network.setCallback('onGameSettingsUpdated', (game) => {
+      // Update lobby display with new settings
+      document.getElementById('lobby-game-name').textContent = game.name;
+
+      // Update host controls if we're the host
+      if (network.getIsHost()) {
+        document.getElementById('lobby-edit-game-name').value = game.name;
+        document.getElementById('lobby-edit-player-count').value = game.totalPlayers;
+      }
+
+      // Update pending config if we have one
+      if (pendingGameConfig) {
+        pendingGameConfig.numPlayers = game.totalPlayers;
+        pendingGameConfig.numHumans = game.humanPlayers;
+      }
+
+      updateLobbyPlayers(game);
+      speech.speak(`Game settings updated. ${game.name}, ${game.totalPlayers} players.`);
+    });
+
+    network.setCallback('onGameDeleted', (gameId) => {
+      // Return to setup screen
+      G.multiplayerHost = false;
+      document.getElementById('lobby-screen').classList.add('hidden');
+      document.getElementById('game-screen').classList.add('hidden');
+      document.getElementById('setup-screen').classList.remove('hidden');
+      speech.speak('Game has been deleted by the host.');
+    });
+
+    network.setCallback('onGameEnded', (gameId, reason) => {
+      // Return to setup screen
+      G.multiplayerMode = false;
+      G.multiplayerHost = false;
+      clearIntervals();
+      document.getElementById('game-screen').classList.add('hidden');
+      document.getElementById('lobby-screen').classList.add('hidden');
+      document.getElementById('setup-screen').classList.remove('hidden');
+      speech.speak(reason || 'Game has been ended by the host.');
+    });
+
     // Update games list UI
     function updateGamesList(games) {
       const container = document.getElementById('games-list');
@@ -837,6 +895,20 @@
       document.getElementById('lobby-screen').classList.remove('hidden');
 
       document.getElementById('lobby-game-name').textContent = game.name;
+      document.getElementById('lobby-game-id').textContent = `Game ID: ${game.id}`;
+
+      // Show/hide host controls
+      const hostControls = document.getElementById('lobby-host-controls');
+      if (hostControls) {
+        if (isHost) {
+          hostControls.classList.remove('hidden');
+          // Populate host settings
+          document.getElementById('lobby-edit-game-name').value = game.name;
+          document.getElementById('lobby-edit-player-count').value = game.totalPlayers;
+        } else {
+          hostControls.classList.add('hidden');
+        }
+      }
 
       const startBtn = document.getElementById('lobby-start-btn');
       if (isHost) {
@@ -1039,6 +1111,49 @@
       speech.speak('Left the lobby.');
     }
 
+    // Update game name (host only)
+    function updateLobbyGameName() {
+      if (!network.getIsHost()) return;
+      const newName = document.getElementById('lobby-edit-game-name')?.value?.trim();
+      if (!newName) return;
+      network.updateGameSettings({ name: newName });
+      speech.speak(`Game name updated to ${newName}.`);
+    }
+
+    // Update player count (host only)
+    function updateLobbyPlayerCount() {
+      if (!network.getIsHost()) return;
+      const newCount = parseInt(document.getElementById('lobby-edit-player-count')?.value);
+      if (!newCount || newCount < 2 || newCount > 6) return;
+      network.updateGameSettings({ totalPlayers: newCount });
+      speech.speak(`Player count updated to ${newCount}.`);
+    }
+
+    // Delete/end the game (host only)
+    function deleteGame() {
+      if (!network.getIsHost()) {
+        speech.speak('Only the host can delete the game.');
+        return;
+      }
+      if (confirm('Are you sure you want to delete this game? All players will be removed.')) {
+        network.deleteGame();
+        speech.speak('Game deleted.');
+      }
+    }
+
+    // End multiplayer game during gameplay (host only)
+    function endMultiplayerGame() {
+      if (!G.multiplayerMode) return;
+      if (!G.multiplayerHost) {
+        speech.speak('Only the host can end the game.');
+        return;
+      }
+      if (confirm('Are you sure you want to end this game for all players?')) {
+        network.endGame();
+        speech.speak('Game ended by host.');
+      }
+    }
+
     // Refresh games list
     function refreshGames() {
       if (network.isConnected()) {
@@ -1228,6 +1343,16 @@
       startIntervals();
       ui.updateUI();
 
+      // Show End Game button for host
+      const endGameBtn = document.getElementById('end-game-btn');
+      if (endGameBtn) {
+        if (G.multiplayerHost) {
+          endGameBtn.classList.remove('hidden');
+        } else {
+          endGameBtn.classList.add('hidden');
+        }
+      }
+
       // Announce game start
       const myPlayer = G.players[myAssignedPlayerIndex];
       let startAnnouncement = 'Multiplayer game starting.';
@@ -1279,9 +1404,19 @@
         case 'nextPlayer':
           applyRemoteNextPlayer(data);
           break;
+        case 'gameOver':
+          applyRemoteGameOver(data);
+          break;
       }
 
       ui.updateUI();
+    }
+
+    // Apply remote game over
+    function applyRemoteGameOver(data) {
+      const { winnerId, winnerName } = data;
+      logDebug('GameOver', 'gameOver received', { winnerId, winnerName });
+      gameModule.endGame(winnerId);
     }
 
     // Apply remote claim action
@@ -1462,14 +1597,15 @@
         armies: data.armies,
         newTurn: data.newTurn,
         turnNumber: data.turnNumber,
+        phase: data.phase,
         isHost: G.multiplayerHost
       });
 
       G.currentPlayer = data.nextPlayer;
-      if (data.newTurn) {
-        G.turnNumber = data.turnNumber;
-      }
-      G.phase = 'reinforce';
+      // Always update turn number to stay in sync
+      G.turnNumber = data.turnNumber;
+      // Use the phase from the broadcast if provided, otherwise default to reinforce
+      G.phase = data.phase || 'reinforce';
       G.armiesToPlace = data.armies;
       G.conqueredThisTurn = false;
       G.attackFrom = null;
@@ -1489,11 +1625,11 @@
       // Play turn sound and announce
       sounds.play('turn');
       const player = G.players[data.nextPlayer];
-      const ann = `${player.name}'s turn, Turn ${G.turnNumber}. Reinforcement. ${data.armies} armies.`;
+      const ann = `${player.name}'s turn, Turn ${G.turnNumber}. Reinforcement. ${data.armies} troops.`;
       speech.speak(ann);
 
       // Log the action
-      log(`${player.name} receives ${data.armies} armies`);
+      log(`${player.name} receives ${data.armies} troops`);
 
       // Update UI first, then check for AI
       ui.updateUI();
@@ -1506,6 +1642,16 @@
       G.humanPlayerId = myAssignedPlayerIndex;
       G.multiplayerMode = true;
       syncHostStatus();
+
+      // CRITICAL: Fix isRemote flags for local perspective
+      // The synced state has isRemote from the sender's perspective,
+      // but we need it from OUR perspective
+      for (let i = 0; i < G.players.length; i++) {
+        if (G.players[i].isHuman) {
+          G.players[i].isRemote = (i !== myAssignedPlayerIndex);
+        }
+      }
+
       ui.updateUI();
     }
 
@@ -1864,6 +2010,10 @@
       document.getElementById('setup-screen').classList.add('hidden');
       document.getElementById('game-screen').classList.remove('hidden');
 
+      // Hide End Game button for non-multiplayer games
+      const endGameBtn = document.getElementById('end-game-btn');
+      if (endGameBtn) endGameBtn.classList.add('hidden');
+
       // Initialize the visual map
       if (map) {
         map.createMap();
@@ -2017,7 +2167,7 @@
       if (G.territories[t.name].owner !== player.id) { sounds.play('error'); speech.speak(`Not ${player.name}'s territory.`); return; }
       if (G.phase === 'setup-reinforce') {
         const playerArmies = G.setupArmies[player.id];
-        if (playerArmies <= 0) { sounds.play('error'); speech.speak('No armies.'); return; }
+        if (playerArmies <= 0) { sounds.play('error'); speech.speak('No troops.'); return; }
 
         // Calculate how many more troops can be placed this round (max 3 total per round)
         const remainingThisRound = 3 - G.setupTroopsPlacedThisRound;
@@ -2030,10 +2180,10 @@
         // Max is the lesser of player's remaining armies OR remaining troops this round
         const maxToPlace = Math.min(playerArmies, remainingThisRound);
         const promptText = G.setupTroopsPlacedThisRound > 0
-          ? `How many armies to place on ${t.name}? (${remainingThisRound} left this round)`
-          : `How many armies to place on ${t.name}? (up to 3 per round)`;
+          ? `How many troops to place on ${t.name}? (${remainingThisRound} left this round)`
+          : `How many troops to place on ${t.name}? (up to 3 per round)`;
 
-        ui.showTroopInput('Place Armies', promptText, 1, maxToPlace, amt => {
+        ui.showTroopInput('Place Troops', promptText, 1, maxToPlace, amt => {
           G.territories[t.name].troops += amt;
           G.setupArmies[player.id] -= amt;
           G.setupTroopsPlacedThisRound += amt;  // Track troops placed this round
@@ -2068,8 +2218,8 @@
           }
         });
       } else if (G.phase === 'reinforce') {
-        if (G.armiesToPlace <= 0) { sounds.play('error'); speech.speak('No armies.'); return; }
-        ui.showTroopInput('Place Armies', `How many armies to place on ${t.name}?`, 1, G.armiesToPlace, amt => {
+        if (G.armiesToPlace <= 0) { sounds.play('error'); speech.speak('No troops.'); return; }
+        ui.showTroopInput('Place Troops', `How many troops to place on ${t.name}?`, 1, G.armiesToPlace, amt => {
           G.territories[t.name].troops += amt;
           G.armiesToPlace -= amt;
           G.stats.troopsPlaced[player.id] += amt;
@@ -2105,7 +2255,17 @@
 
     function endReinforce() {
       if (G.phase !== 'reinforce') return;
-      if (G.armiesToPlace > 0) { speech.speak(`Place ${G.armiesToPlace} armies first.`); return; }
+      if (G.armiesToPlace > 0) { speech.speak(`Place ${G.armiesToPlace} troops first.`); return; }
+
+      const player = currentPlayer();
+      // Broadcast phase change
+      broadcastAction('endPhase', {
+        phase: 'reinforce',
+        nextPhase: 'attack',
+        playerId: player?.id,
+        playerName: player?.name
+      });
+
       gameModule.startAttackPhase();
     }
 
@@ -2226,7 +2386,34 @@
           }
 
           const winner = gameModule.checkVictory();
-          if (winner !== null) { gameModule.endGame(winner); return; }
+          if (winner !== null) {
+            // Broadcast the winning attack first
+            broadcastAction('attack', {
+              from: attackFromName,
+              to: t.name,
+              result: result,
+              playerName: player.name,
+              attackerId: player.id,
+              defenderId: defenderId,
+              conquered: true,
+              fromTroops: from.troops,
+              toTroops: to.troops,
+              toOwner: player.id,
+              defenderEliminated,
+              cardsTransferred,
+              victory: true,
+              winnerId: winner
+            });
+
+            // Broadcast game over
+            broadcastAction('gameOver', {
+              winnerId: winner,
+              winnerName: player.name
+            });
+
+            gameModule.endGame(winner);
+            return;
+          }
 
           const minMove = Math.min(3, from.troops - 1), maxMove = from.troops - 1;
           const finishAttack = (moveAmt) => {
@@ -2334,7 +2521,7 @@
         sounds.play('fortify');
         speech.speak(`${player.name} moves ${amt} from ${fortifySource} to ${t.name}.`);
 
-        // Broadcast to other players
+        // Broadcast fortify action to other players
         broadcastAction('fortify', {
           from: fortifySource,
           to: t.name,
@@ -2344,7 +2531,25 @@
         });
 
         G.fortifyFrom = null;
+
+        // Calculate next player info for broadcast (same as endTurn)
+        const currentIdx = G.currentPlayer;
         gameModule.nextPlayer();
+
+        // Broadcast next player transition after fortify
+        if (G.phase !== 'gameover') {
+          broadcastAction('nextPlayer', {
+            previousPlayer: currentIdx,
+            nextPlayer: G.currentPlayer,
+            turnNumber: G.turnNumber,
+            newTurn: G.currentPlayer < currentIdx || G.currentPlayer === 0,
+            armies: G.armiesToPlace,
+            phase: G.phase
+          });
+
+          // Sync full state to ensure consistency
+          broadcastState();
+        }
       });
     }
 
@@ -2366,15 +2571,19 @@
 
       gameModule.nextPlayer();
 
-      // Broadcast next player
+      // Broadcast next player with full state info
       if (G.phase !== 'gameover') {
         broadcastAction('nextPlayer', {
           previousPlayer: currentIdx,
           nextPlayer: G.currentPlayer,
           turnNumber: G.turnNumber,
           newTurn: G.currentPlayer < currentIdx || G.currentPlayer === 0,
-          armies: G.armiesToPlace
+          armies: G.armiesToPlace,
+          phase: G.phase
         });
+
+        // Also sync full state to ensure consistency
+        broadcastState();
       }
     }
 
@@ -2564,7 +2773,9 @@
       downloadDebugLog,
       clearDebugLog,
       // Multiplayer functions
-      createLobby, joinGameLobby, rejoinGameSlot, leaveLobby, refreshGames, startMultiplayerGame
+      createLobby, joinGameLobby, rejoinGameSlot, leaveLobby, refreshGames, startMultiplayerGame,
+      // Host controls
+      updateLobbyGameName, updateLobbyPlayerCount, deleteGame, endMultiplayerGame
     };
     window.ui = ui;
   </script>

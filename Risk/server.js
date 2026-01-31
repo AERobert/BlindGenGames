@@ -378,6 +378,18 @@ function handleMessage(ws, message) {
       }));
       break;
 
+    case 'update_game_settings':
+      handleUpdateGameSettings(ws, clientInfo, message);
+      break;
+
+    case 'delete_game':
+      handleDeleteGame(ws, clientInfo);
+      break;
+
+    case 'end_game':
+      handleEndGame(ws, clientInfo);
+      break;
+
     default:
       console.log('Unknown message type:', message.type);
   }
@@ -623,6 +635,124 @@ function handleChat(ws, clientInfo, message) {
     from: clientInfo.playerName,
     message: message.text
   });
+}
+
+function handleUpdateGameSettings(ws, clientInfo, message) {
+  const game = games.get(clientInfo.gameId);
+
+  if (!game) {
+    ws.send(JSON.stringify({ type: 'error', message: 'Game not found' }));
+    return;
+  }
+
+  // Only the host can update game settings
+  if (game.hostId !== clientInfo.id) {
+    ws.send(JSON.stringify({ type: 'error', message: 'Only the host can update settings' }));
+    return;
+  }
+
+  // Can only update settings while waiting (not during play)
+  if (game.status !== 'waiting') {
+    ws.send(JSON.stringify({ type: 'error', message: 'Cannot update settings after game started' }));
+    return;
+  }
+
+  const settings = message.settings || {};
+
+  // Update game name
+  if (settings.name && typeof settings.name === 'string') {
+    game.name = settings.name.trim().substring(0, 50);
+  }
+
+  // Update total players
+  if (settings.totalPlayers && typeof settings.totalPlayers === 'number') {
+    const newTotal = Math.min(6, Math.max(2, settings.totalPlayers));
+    // Cannot reduce below current human players
+    if (newTotal >= game.humanPlayers) {
+      game.totalPlayers = newTotal;
+    }
+  }
+
+  console.log(`Game ${game.id} settings updated: ${game.name}, ${game.totalPlayers} players`);
+
+  // Broadcast to all players in the lobby
+  broadcastToGame(clientInfo.gameId, {
+    type: 'game_settings_updated',
+    game: game.toJSON()
+  });
+
+  broadcastGamesList();
+}
+
+function handleDeleteGame(ws, clientInfo) {
+  const game = games.get(clientInfo.gameId);
+
+  if (!game) {
+    ws.send(JSON.stringify({ type: 'error', message: 'Game not found' }));
+    return;
+  }
+
+  // Only the host can delete the game
+  if (game.hostId !== clientInfo.id) {
+    ws.send(JSON.stringify({ type: 'error', message: 'Only the host can delete the game' }));
+    return;
+  }
+
+  console.log(`Game ${game.id} deleted by host ${clientInfo.playerName}`);
+
+  // Notify all players in the game that it's being deleted
+  broadcastToGame(clientInfo.gameId, {
+    type: 'game_deleted',
+    gameId: clientInfo.gameId
+  });
+
+  // Remove game from all players
+  for (const [socket, info] of clients.entries()) {
+    if (info.gameId === clientInfo.gameId) {
+      info.gameId = null;
+    }
+  }
+
+  // Delete the game
+  games.delete(clientInfo.gameId);
+
+  broadcastGamesList();
+}
+
+function handleEndGame(ws, clientInfo) {
+  const game = games.get(clientInfo.gameId);
+
+  if (!game) {
+    ws.send(JSON.stringify({ type: 'error', message: 'Game not found' }));
+    return;
+  }
+
+  // Only the host can end the game
+  if (game.hostId !== clientInfo.id) {
+    ws.send(JSON.stringify({ type: 'error', message: 'Only the host can end the game' }));
+    return;
+  }
+
+  console.log(`Game ${game.id} ended by host ${clientInfo.playerName}`);
+
+  // Notify all players that the game has ended
+  broadcastToGame(clientInfo.gameId, {
+    type: 'game_ended',
+    gameId: clientInfo.gameId,
+    reason: 'Game ended by host.'
+  });
+
+  // Remove game from all players
+  for (const [socket, info] of clients.entries()) {
+    if (info.gameId === clientInfo.gameId) {
+      info.gameId = null;
+    }
+  }
+
+  // Delete the game
+  games.delete(clientInfo.gameId);
+
+  broadcastGamesList();
 }
 
 // Get local network IP address

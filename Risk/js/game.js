@@ -394,7 +394,7 @@
     while (G.setupArmies[G.currentPlayer] <= 0) G.currentPlayer = (G.currentPlayer + 1) % G.players.length;
     G.currentTerritoryIdx = TERRITORIES.findIndex(t => G.territories[t.name].owner === G.currentPlayer);
     updateUI();
-    speech.speak(`Setup. ${currentPlayer().name}, place armies. ${G.setupArmies[currentPlayer().id]} remaining. Place up to 3 this round.`);
+    speech.speak(`Setup. ${currentPlayer().name}, place troops. ${G.setupArmies[currentPlayer().id]} remaining. Place up to 3 this round.`);
     if (!currentPlayer().isHuman && shouldRunAI()) setTimeout(aiTurn, G.aiDelay);
   }
 
@@ -406,7 +406,7 @@
     G.setupTroopsPlacedThisRound = 0;  // Reset counter for new player's round
     updateUI();
     if (!currentPlayer().isHuman && shouldRunAI()) setTimeout(aiTurn, G.aiDelay / 2);
-    else speech.speak(`${currentPlayer().name}'s turn. ${G.setupArmies[currentPlayer().id]} armies to place. Up to 3 this round.`);
+    else speech.speak(`${currentPlayer().name}'s turn. ${G.setupArmies[currentPlayer().id]} troops to place. Up to 3 this round.`);
   }
 
   function startMainGame() {
@@ -425,7 +425,7 @@
     G.currentTerritoryIdx = TERRITORIES.findIndex(t => G.territories[t.name].owner === player.id);
     updateUI();
     sounds.play('turn');
-    let ann = `${player.name}'s turn, Turn ${G.turnNumber}. Reinforcement. ${armies} armies.`;
+    let ann = `${player.name}'s turn, Turn ${G.turnNumber}. Reinforcement. ${armies} troops.`;
     if (player.cards.length >= 5) {
       const set = findValidCardSet(player.cards);
       if (set) {
@@ -438,7 +438,7 @@
         ann += '.';
       }
     }
-    log(`${player.name} receives ${G.armiesToPlace} armies`);
+    log(`${player.name} receives ${G.armiesToPlace} troops`);
     speech.speak(ann);
     if (!player.isHuman && shouldRunAI()) setTimeout(aiTurn, G.aiDelay);
   }
@@ -521,7 +521,7 @@
       }
     }
     const totalBonus = territoryBonuses.length * 2;
-    log(`${player.name} trades cards for ${value} armies` + (totalBonus > 0 ? ` (+${totalBonus} on ${territoryBonuses.join(', ')})` : ''));
+    log(`${player.name} trades cards for ${value} troops` + (totalBonus > 0 ? ` (+${totalBonus} on ${territoryBonuses.join(', ')})` : ''));
     return { value, territoryBonuses };
   }
 
