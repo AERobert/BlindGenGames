@@ -1,0 +1,1292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Accessible InfiniteCraft</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+            color: #333;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 15px;
+            padding: 30px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+        }
+
+        h1 {
+            text-align: center;
+            color: #4a5568;
+            margin-bottom: 10px;
+            font-size: 2.5rem;
+        }
+
+        h2 {
+            color: #4a5568;
+            margin-bottom: 15px;
+            font-size: 1.5rem;
+        }
+
+        h3 {
+            color: #4a5568;
+            margin-bottom: 10px;
+            font-size: 1.2rem;
+            margin-top: 15px;
+        }
+
+        .instructions {
+            text-align: center;
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 1.1rem;
+            line-height: 1.6;
+        }
+
+        .collapsible-section {
+            border: 2px solid #e2e8f0;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            background: #f7fafc;
+        }
+
+        .collapsible-header {
+            background: #edf2f7;
+            padding: 15px 20px;
+            cursor: pointer;
+            border-radius: 8px 8px 0 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-weight: 600;
+            color: #4a5568;
+            user-select: none;
+            transition: all 0.3s ease;
+        }
+
+        .collapsible-header:hover {
+            background: #e2e8f0;
+        }
+
+        .collapsible-header:focus {
+            outline: 3px solid #ffd700;
+            outline-offset: 2px;
+        }
+
+        .collapsible-arrow {
+            font-size: 1.2rem;
+            transition: transform 0.3s ease;
+        }
+
+        .collapsible-content {
+            padding: 20px;
+            display: none;
+        }
+
+        .collapsible-content.expanded {
+            display: block;
+        }
+
+        .collapsible-header.expanded .collapsible-arrow {
+            transform: rotate(180deg);
+        }
+
+        .game-info {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding: 15px;
+            background: #f7fafc;
+            border-radius: 10px;
+            border: 2px solid #e2e8f0;
+        }
+
+        .selection-status {
+            font-weight: bold;
+            color: #2d3748;
+            font-size: 1.1rem;
+        }
+
+        .clear-selection {
+            background: #e53e3e;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+
+        .clear-selection:hover {
+            background: #c53030;
+        }
+
+        .clear-selection:focus {
+            outline: 3px solid #ffd700;
+            outline-offset: 2px;
+        }
+
+        .controls-group {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            padding: 15px;
+            background: #edf2f7;
+            border-radius: 10px;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+
+        .control-section {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .control-section label {
+            font-weight: 600;
+            color: #4a5568;
+        }
+
+        .sort-select, .filter-select {
+            padding: 8px 12px;
+            border: 2px solid #cbd5e0;
+            border-radius: 6px;
+            background: white;
+            font-size: 0.9rem;
+            cursor: pointer;
+        }
+
+        .sort-select:focus, .filter-select:focus {
+            outline: 3px solid #ffd700;
+            outline-offset: 2px;
+            border-color: #4299e1;
+        }
+
+        .checkbox-control {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .checkbox-control input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+        }
+
+        .checkbox-control input[type="checkbox"]:focus {
+            outline: 3px solid #ffd700;
+            outline-offset: 2px;
+        }
+
+        .checkbox-control label {
+            cursor: pointer;
+            font-weight: 600;
+            color: #4a5568;
+        }
+
+        .button-control {
+            background: #805ad5;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            margin: 5px;
+        }
+
+        .button-control:hover {
+            background: #6b46c1;
+        }
+
+        .button-control:focus {
+            outline: 3px solid #ffd700;
+            outline-offset: 2px;
+        }
+
+        .button-control.locked {
+            background: #d69e2e;
+        }
+
+        .button-control.locked:hover {
+            background: #b7791f;
+        }
+
+        .button-control.danger {
+            background: #e53e3e;
+        }
+
+        .button-control.danger:hover {
+            background: #c53030;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 15px;
+        }
+
+        .stat-card {
+            background: #edf2f7;
+            padding: 15px;
+            border-radius: 8px;
+            border: 2px solid #e2e8f0;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #2d3748;
+            display: block;
+        }
+
+        .stat-label {
+            font-size: 0.9rem;
+            color: #4a5568;
+            margin-top: 5px;
+        }
+
+        .filter-info {
+            text-align: center;
+            color: #666;
+            font-style: italic;
+            margin-bottom: 15px;
+        }
+
+        .elements-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+
+        .element-button {
+            background: linear-gradient(135deg, #4299e1 0%, #3182ce 100%);
+            color: white;
+            border: none;
+            padding: 15px 20px;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 1rem;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 12px rgba(66, 153, 225, 0.3);
+            position: relative;
+            overflow: hidden;
+            text-align: left;
+        }
+
+        .element-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(66, 153, 225, 0.4);
+        }
+
+        .element-button:focus {
+            outline: 3px solid #ffd700;
+            outline-offset: 2px;
+        }
+
+        .element-button.selected {
+            background: linear-gradient(135deg, #f6ad55 0%, #ed8936 100%);
+            box-shadow: 0 8px 20px rgba(237, 137, 54, 0.4);
+            transform: translateY(-2px);
+        }
+
+        .element-button.locked {
+            background: linear-gradient(135deg, #d69e2e 0%, #b7791f 100%);
+            box-shadow: 0 8px 20px rgba(214, 158, 46, 0.4);
+            transform: translateY(-2px);
+        }
+
+        .element-button.new-discovery {
+            background: linear-gradient(135deg, #48bb78 0%, #38a169 100%);
+            animation: newDiscovery 2s ease-in-out;
+        }
+
+        .element-button.new-discovery::before {
+            content: "★ NEW! ";
+            font-weight: bold;
+        }
+
+        .element-number {
+            font-size: 0.8rem;
+            opacity: 0.8;
+            display: block;
+            margin-bottom: 5px;
+        }
+
+        .element-discovery {
+            font-size: 0.8rem;
+            opacity: 0.9;
+            font-style: italic;
+        }
+
+        @keyframes newDiscovery {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            color: #4a5568;
+            font-size: 1.1rem;
+            margin: 20px 0;
+        }
+
+        .loading.show {
+            display: block;
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 2px solid #cbd5e0;
+            border-top: 2px solid #4299e1;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: 10px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .sr-only {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            padding: 0;
+            margin: -1px;
+            overflow: hidden;
+            clip: rect(0, 0, 0, 0);
+            white-space: nowrap;
+            border: 0;
+        }
+
+        .announcement {
+            position: absolute;
+            left: -10000px;
+            top: auto;
+            width: 1px;
+            height: 1px;
+            overflow: hidden;
+        }
+
+        .file-input {
+            display: none;
+        }
+
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .modal-overlay.show {
+            display: flex;
+        }
+
+        .modal {
+            background: white;
+            padding: 30px;
+            border-radius: 15px;
+            max-width: 400px;
+            text-align: center;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+        }
+
+        .modal h3 {
+            margin-bottom: 15px;
+            color: #e53e3e;
+        }
+
+        .modal p {
+            margin-bottom: 20px;
+            color: #4a5568;
+            line-height: 1.5;
+        }
+
+        .modal-buttons {
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                padding: 20px;
+            }
+            
+            h1 {
+                font-size: 2rem;
+            }
+            
+            .elements-grid {
+                grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+                gap: 10px;
+            }
+            
+            .game-info {
+                flex-direction: column;
+                gap: 15px;
+            }
+
+            .controls-group {
+                flex-direction: column;
+                align-items: stretch;
+                gap: 15px;
+            }
+
+            .control-section {
+                flex-direction: column;
+                align-items: stretch;
+                gap: 10px;
+            }
+
+            .stats-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Accessible InfiniteCraft</h1>
+        <p class="instructions">
+            Select two elements by clicking their buttons to combine them and create new elements!<br>
+            Use Tab to navigate between buttons and Enter/Space to select them. Use Ctrl+Shift+H to lock/unlock an element.
+        </p>
+
+        <div class="game-info">
+            <div class="selection-status" id="selection-status" role="status">
+                No element selected. Choose your first element.
+            </div>
+            <button class="clear-selection" id="clear-selection" onclick="clearSelection()">
+                Clear Selection
+            </button>
+        </div>
+
+        <!-- Statistics Section -->
+        <div class="collapsible-section">
+            <div class="collapsible-header" tabindex="0" onclick="toggleSection('stats')" onkeydown="handleCollapsibleKey(event, 'stats')" role="heading" aria-level="2">
+                <span>Statistics</span>
+                <span class="collapsible-arrow">▼</span>
+            </div>
+            <div class="collapsible-content expanded" id="stats-content">
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <span class="stat-value" id="element-count">4</span>
+                        <div class="stat-label">Total Elements</div>
+                    </div>
+                    <div class="stat-card">
+                        <span class="stat-value" id="discovery-count">0</span>
+                        <div class="stat-label">Global Discoveries</div>
+                    </div>
+                    <div class="stat-card">
+                        <span class="stat-value" id="total-combinations">0</span>
+                        <div class="stat-label">Combinations Tried</div>
+                    </div>
+                    <div class="stat-card">
+                        <span class="stat-value" id="new-element-rate">0%</span>
+                        <div class="stat-label">New Element Rate</div>
+                    </div>
+                    <div class="stat-card">
+                        <span class="stat-value" id="same-element-rate">0%</span>
+                        <div class="stat-label">Same Element Rate</div>
+                    </div>
+                    <div class="stat-card">
+                        <span class="stat-value" id="nothing-rate">0%</span>
+                        <div class="stat-label">Nothing Rate</div>
+                    </div>
+                    <div class="stat-card">
+                        <span class="stat-value" id="discovery-rate">0%</span>
+                        <div class="stat-label">Discovery Rate</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Settings Section -->
+        <div class="collapsible-section">
+            <div class="collapsible-header" tabindex="0" onclick="toggleSection('settings')" onkeydown="handleCollapsibleKey(event, 'settings')" role="heading" aria-level="2">
+                <span>Settings</span>
+                <span class="collapsible-arrow">▼</span>
+            </div>
+            <div class="collapsible-content expanded" id="settings-content">
+                <h3>Display Options</h3>
+                <div class="controls-group">
+                    <div class="control-section">
+                        <label for="filter-select">Filter:</label>
+                        <select id="filter-select" class="filter-select" onchange="changeFilter()">
+                            <option value="all">All</option>
+                            <option value="discoveries">Discoveries</option>
+                            <option value="non-discoveries">Non-Discoveries</option>
+                            <option value="non-number-discoveries">Non-Number Discoveries</option>
+                        </select>
+                    </div>
+                    <div class="control-section">
+                        <label for="sort-select">Sort by:</label>
+                        <select id="sort-select" class="sort-select" onchange="changeSortOrder()">
+                            <option value="alphabetical">Alphabetical</option>
+                            <option value="newest">Newest First</option>
+                            <option value="oldest">Oldest First</option>
+                        </select>
+                    </div>
+                    <div class="checkbox-control">
+                        <input type="checkbox" id="show-numbers" onchange="toggleNumbering()">
+                        <label for="show-numbers">Show Numbers</label>
+                    </div>
+                </div>
+
+                <h3>Game Options</h3>
+                <div class="controls-group">
+                    <div class="checkbox-control">
+                        <input type="checkbox" id="enable-announcements" checked onchange="toggleAnnouncements()">
+                        <label for="enable-announcements">Enable Spoken Announcements</label>
+                    </div>
+                    <button class="button-control" id="lock-button" onclick="toggleLock()">
+                        Lock Element
+                    </button>
+                </div>
+
+                <h3>Save & Load</h3>
+                <div class="controls-group">
+                    <button class="button-control" onclick="saveData()">Save Game</button>
+                    <button class="button-control" onclick="document.getElementById('file-input').click()">Load Game</button>
+                    <button class="button-control danger" onclick="showRestartModal()">Restart Game</button>
+                    <input type="file" id="file-input" class="file-input" accept=".txt" onchange="loadData(event)">
+                </div>
+            </div>
+        </div>
+
+        <div class="filter-info" id="filter-info" style="display: none;">
+            <!-- Filter info will be shown here when not showing all elements -->
+        </div>
+
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            Crafting your elements...
+        </div>
+
+        <h2>Elements</h2>
+        <div class="elements-grid" id="elements-grid" role="group" aria-label="Available elements">
+            <!-- Elements will be added here -->
+        </div>
+
+        <!-- Screen reader announcements -->
+        <div class="announcement" id="announcement" aria-live="assertive" aria-atomic="true"></div>
+    </div>
+
+    <!-- Restart confirmation modal -->
+    <div class="modal-overlay" id="restart-modal">
+        <div class="modal">
+            <h3>⚠️ Restart Game</h3>
+            <p>This will delete all your elements and progress. Your current data will be automatically saved first as a backup.</p>
+            <p><strong>Are you sure you want to restart?</strong></p>
+            <div class="modal-buttons">
+                <button class="button-control danger" onclick="confirmRestart()">Yes, Restart</button>
+                <button class="button-control" onclick="hideRestartModal()">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        class AccessibleInfiniteCraft {
+            constructor() {
+                this.selectedElement = null;
+                this.lockedElement = null;
+                this.isProcessing = false;
+                this.showNumbers = false;
+                this.sortOrder = 'alphabetical';
+                this.currentFilter = 'all';
+                this.enableAnnouncements = true;
+                
+                // Combination statistics
+                this.combinationStats = {
+                    total: 0,
+                    newElement: 0,
+                    sameElement: 0,
+                    nothing: 0,
+                    discovery: 0
+                };
+
+                // Section visibility states
+                this.sectionStates = {
+                    stats: true,
+                    settings: true
+                };
+                
+                // Load data from localStorage or use defaults
+                this.loadGameData();
+                
+                this.initializeGame();
+            }
+
+            loadGameData() {
+                try {
+                    const savedData = localStorage.getItem('infinitecraft-data');
+                    if (savedData) {
+                        const data = JSON.parse(savedData);
+                        this.elementsData = data.elementsData || [];
+                        this.discoveryCount = data.discoveryCount || 0;
+                        this.sortOrder = data.sortOrder || 'alphabetical';
+                        this.showNumbers = data.showNumbers || false;
+                        this.currentFilter = data.currentFilter || 'all';
+                        this.enableAnnouncements = data.enableAnnouncements !== false;
+                        this.combinationStats = data.combinationStats || {
+                            total: 0,
+                            newElement: 0,
+                            sameElement: 0,
+                            nothing: 0,
+                            discovery: 0
+                        };
+                        this.sectionStates = data.sectionStates || {
+                            stats: true,
+                            settings: true
+                        };
+                        
+                        // If no saved data, use default elements
+                        if (this.elementsData.length === 0) {
+                            this.initializeDefaultElements();
+                        }
+                    } else {
+                        this.initializeDefaultElements();
+                    }
+                } catch (error) {
+                    console.error('Error loading game data:', error);
+                    this.initializeDefaultElements();
+                }
+            }
+
+            initializeDefaultElements() {
+                const defaultElements = ['Water', 'Fire', 'Wind', 'Earth'];
+                this.elementsData = defaultElements.map((name, index) => ({
+                    name: name,
+                    timestamp: Date.now() - (defaultElements.length - index) * 1000,
+                    isDiscovery: false
+                }));
+                this.discoveryCount = 0;
+            }
+
+            saveGameData() {
+                try {
+                    const dataToSave = {
+                        elementsData: this.elementsData,
+                        discoveryCount: this.discoveryCount,
+                        sortOrder: this.sortOrder,
+                        showNumbers: this.showNumbers,
+                        currentFilter: this.currentFilter,
+                        enableAnnouncements: this.enableAnnouncements,
+                        combinationStats: this.combinationStats,
+                        sectionStates: this.sectionStates
+                    };
+                    localStorage.setItem('infinitecraft-data', JSON.stringify(dataToSave));
+                } catch (error) {
+                    console.error('Error saving game data:', error);
+                }
+            }
+
+            saveDataToFile() {
+                try {
+                    const dataToSave = {
+                        elementsData: this.elementsData,
+                        discoveryCount: this.discoveryCount,
+                        sortOrder: this.sortOrder,
+                        showNumbers: this.showNumbers,
+                        currentFilter: this.currentFilter,
+                        enableAnnouncements: this.enableAnnouncements,
+                        combinationStats: this.combinationStats,
+                        sectionStates: this.sectionStates,
+                        exportDate: new Date().toISOString()
+                    };
+                    
+                    const jsonString = JSON.stringify(dataToSave, null, 2);
+                    const blob = new Blob([jsonString], { type: 'text/plain' });
+                    const url = URL.createObjectURL(blob);
+                    
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `infinitecraft-save-${new Date().toISOString().split('T')[0]}.txt`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                    
+                    this.announce('Game saved to file successfully!');
+                } catch (error) {
+                    console.error('Error saving to file:', error);
+                    this.announce('Error saving game to file');
+                }
+            }
+
+            loadDataFromFile(event) {
+                const file = event.target.files[0];
+                if (!file) return;
+
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    try {
+                        const data = JSON.parse(e.target.result);
+                        
+                        // Validate the data structure
+                        if (data.elementsData && Array.isArray(data.elementsData)) {
+                            localStorage.setItem('infinitecraft-data', JSON.stringify(data));
+                            location.reload();
+                        } else {
+                            this.announce('Invalid save file format');
+                        }
+                    } catch (error) {
+                        console.error('Error loading file:', error);
+                        this.announce('Error loading save file');
+                    }
+                };
+                reader.readAsText(file);
+            }
+
+            restartGame() {
+                // First save current data as backup
+                this.saveDataToFile();
+                
+                // Clear localStorage
+                localStorage.removeItem('infinitecraft-data');
+                
+                // Reload the page
+                setTimeout(() => {
+                    location.reload();
+                }, 1000);
+            }
+
+            initializeGame() {
+                // Set UI controls to saved values
+                document.getElementById('sort-select').value = this.sortOrder;
+                document.getElementById('show-numbers').checked = this.showNumbers;
+                document.getElementById('filter-select').value = this.currentFilter;
+                document.getElementById('enable-announcements').checked = this.enableAnnouncements;
+                
+                // Set section states
+                Object.keys(this.sectionStates).forEach(sectionId => {
+                    this.setSectionState(sectionId, this.sectionStates[sectionId]);
+                });
+                
+                this.renderElements();
+                this.updateStats();
+                this.updateLockButton();
+                
+                // Add keyboard event listeners
+                document.addEventListener('keydown', (e) => {
+                    if (e.key === 'Escape') {
+                        this.clearSelection();
+                    } else if (e.ctrlKey && e.shiftKey && e.key === 'H') {
+                        e.preventDefault();
+                        this.toggleLock();
+                    }
+                });
+            }
+
+            setSectionState(sectionId, expanded) {
+                const header = document.querySelector(`[onclick*="${sectionId}"]`);
+                const content = document.getElementById(`${sectionId}-content`);
+                const arrow = header.querySelector('.collapsible-arrow');
+                
+                if (expanded) {
+                    content.classList.add('expanded');
+                    header.classList.add('expanded');
+                    arrow.textContent = '▲';
+                } else {
+                    content.classList.remove('expanded');
+                    header.classList.remove('expanded');
+                    arrow.textContent = '▼';
+                }
+                
+                this.sectionStates[sectionId] = expanded;
+                this.saveGameData();
+            }
+
+            toggleSection(sectionId) {
+                this.setSectionState(sectionId, !this.sectionStates[sectionId]);
+            }
+
+            getFilteredElements() {
+                let filtered = [...this.elementsData];
+                
+                switch (this.currentFilter) {
+                    case 'discoveries':
+                        filtered = filtered.filter(el => el.isDiscovery);
+                        break;
+                    case 'non-discoveries':
+                        filtered = filtered.filter(el => !el.isDiscovery);
+                        break;
+                    case 'non-number-discoveries':
+                        filtered = filtered.filter(el => el.isDiscovery && !/\d/.test(el.name));
+                        break;
+                    case 'all':
+                    default:
+                        // No filtering
+                        break;
+                }
+                
+                return filtered;
+            }
+
+            getSortedElements() {
+                let sorted = this.getFilteredElements();
+                
+                switch (this.sortOrder) {
+                    case 'alphabetical':
+                        sorted.sort((a, b) => a.name.localeCompare(b.name));
+                        break;
+                    case 'newest':
+                        sorted.sort((a, b) => b.timestamp - a.timestamp);
+                        break;
+                    case 'oldest':
+                        sorted.sort((a, b) => a.timestamp - b.timestamp);
+                        break;
+                }
+                
+                return sorted;
+            }
+
+            updateFilterInfo() {
+                const filterInfo = document.getElementById('filter-info');
+                const filteredElements = this.getFilteredElements();
+                
+                if (this.currentFilter === 'all') {
+                    filterInfo.style.display = 'none';
+                } else {
+                    filterInfo.style.display = 'block';
+                    filterInfo.textContent = `Showing ${filteredElements.length} of ${this.elementsData.length} elements`;
+                }
+            }
+
+            renderElements() {
+                const grid = document.getElementById('elements-grid');
+                grid.innerHTML = '';
+                
+                const sortedElements = this.getSortedElements();
+                this.updateFilterInfo();
+                
+                sortedElements.forEach((elementData) => {
+                    const button = document.createElement('button');
+                    button.className = 'element-button';
+                    button.setAttribute('aria-describedby', 'selection-status');
+                    
+                    // Add aria-selected for selected element
+                    if (this.selectedElement === elementData.name) {
+                        button.setAttribute('aria-selected', 'true');
+                        button.classList.add('selected');
+                    }
+                    
+                    // Add locked styling and attributes
+                    if (this.lockedElement === elementData.name) {
+                        button.classList.add('locked');
+                        button.setAttribute('aria-pressed', 'true');
+                    }
+                    
+                    button.onclick = () => this.selectElement(elementData.name, button);
+                    
+                    // Create button content
+                    let buttonContent = '';
+                    if (this.showNumbers) {
+                        // Find the element's stable number (based on chronological order)
+                        const chronologicalIndex = this.elementsData.findIndex(el => el.name === elementData.name);
+                        const elementNumber = chronologicalIndex + 1;
+                        buttonContent += `<span class="element-number">#${elementNumber}- </span>`;
+                    }
+                    
+                    buttonContent += elementData.name;
+                    
+                    if (elementData.isDiscovery) {
+                        buttonContent += `<span class="element-discovery"> (Discovery)</span>`;
+                    }
+                    
+                    if (this.lockedElement === elementData.name) {
+                        buttonContent += ` <strong>(LOCKED)</strong>`;
+                    }
+                    
+                    button.innerHTML = buttonContent;
+                    
+                    // Add keyboard support
+                    button.addEventListener('keydown', (e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            this.selectElement(elementData.name, button);
+                        }
+                    });
+                    
+                    grid.appendChild(button);
+                });
+            }
+
+            selectElement(elementName, buttonElement) {
+                if (this.isProcessing) return;
+
+                if (this.lockedElement) {
+                    // If we have a locked element, always use it as first element
+                    if (elementName === this.lockedElement) {
+                        // Clicking the locked element - do nothing or maybe announce it's locked
+                        this.announce(`${elementName} is locked as the first element`);
+                        return;
+                    } else {
+                        // Attempt craft with locked element as first, clicked as second
+                        this.attemptCraft(this.lockedElement, elementName);
+                    }
+                } else if (!this.selectedElement) {
+                    // First selection
+                    this.selectedElement = elementName;
+                    buttonElement.classList.add('selected');
+                    buttonElement.setAttribute('aria-selected', 'true');
+                    this.announce(`${elementName} selected`);
+                } else {
+                    // Second selection - attempt craft
+                    this.attemptCraft(this.selectedElement, elementName);
+                }
+            }
+
+            toggleLock() {
+                if (!this.selectedElement) {
+                    this.announce('No element selected to lock');
+                    return;
+                }
+
+                if (this.lockedElement === this.selectedElement) {
+                    // Unlock
+                    this.announce(`${this.selectedElement} unlocked`);
+                    this.lockedElement = null;
+                    clearSelection();
+                } else {
+                    // Lock
+                    this.lockedElement = this.selectedElement;
+                    this.announce(`${this.selectedElement} locked as first element`);
+                }
+
+                this.updateLockButton();
+                this.renderElements();
+            }
+
+            updateLockButton() {
+                const lockButton = document.getElementById('lock-button');
+                if (this.lockedElement) {
+                    lockButton.textContent = `Unlock ${this.lockedElement}`;
+                    lockButton.classList.add('locked');
+                } else {
+                    lockButton.textContent = 'Lock Element';
+                    lockButton.classList.remove('locked');
+                }
+            }
+
+            async attemptCraft(first, second) {
+                if (this.isProcessing) return;
+                
+                this.isProcessing = true;
+                this.showLoading(true);
+                this.updateSelectionStatus(`Combining ${first} and ${second}...`);
+
+                try {
+                    const response = await fetch(
+                        `https://neal.fun/api/infinite-craft/pair?ref=app&first=${encodeURIComponent(first).replaceAll('%20', '+')}&second=${encodeURIComponent(second).replaceAll('%20', '+')}`
+                    );
+                    
+                    if (!response.ok) {
+                        throw new Error('Failed to fetch from API');
+                    }
+                    
+                    const data = await response.json();
+                    this.processCraftResult(first, second, data);
+                    
+                } catch (error) {
+                    console.error('Crafting error:', error);
+                    this.announce('Sorry, there was an error combining those elements. Please try again.');
+                    this.updateSelectionStatus('Error occurred. Please try again.');
+                } finally {
+                    this.isProcessing = false;
+                    this.showLoading(false);
+                    if (!this.lockedElement) {
+                        this.clearSelection();
+                    }
+                }
+            }
+
+            processCraftResult(first, second, data) {
+                const result = data.result;
+                const isNew = data.isNew;
+
+                // Update combination statistics
+                this.combinationStats.total++;
+
+                if (!result || result.toLowerCase() === 'nothing') {
+                    // Failed combination
+                    this.combinationStats.nothing++;
+                    this.announce(`You combine ${first} and ${second}, but nothing happens.`);
+                    this.updateSelectionStatus(`${first} + ${second} = Nothing. Try different combinations!`);
+                    this.saveGameData();
+                    this.updateStats();
+                    return;
+                }
+
+                const alreadyHave = this.elementsData.some(element => element.name === result);
+                
+                if (!alreadyHave) {
+                    // New element for the player
+                    this.combinationStats.newElement++;
+                    const newElementData = {
+                        name: result,
+                        timestamp: Date.now(),
+                        isDiscovery: isNew
+                    };
+                    this.elementsData.push(newElementData);
+                    
+                    if (isNew) {
+                        this.discoveryCount++;
+                        this.combinationStats.discovery++;
+                    }
+                    
+                    this.saveGameData();
+                    this.renderElements();
+                    
+                    if (isNew) {
+                        // Global discovery
+                        this.announce(`You combine ${first} and ${second} and crafted ${result}. This is a brand new discovery that no one has ever made before!`);
+                        this.updateSelectionStatus(`SUCCESS! ${first} + ${second} = ${result} (NEW DISCOVERY!)`);
+                        this.highlightNewElement(result, true);
+                    } else {
+                        // New to player but discovered before
+                        this.announce(`You combine ${first} and ${second} and crafted ${result}.`);
+                        this.updateSelectionStatus(`SUCCESS! ${first} + ${second} = ${result} (New to you!)`);
+                        this.highlightNewElement(result, false);
+                    }
+                } else {
+                    // Already have this element
+                    this.combinationStats.sameElement++;
+                    this.announce(`You combine ${first} and ${second} and crafted ${result}. You already have this element.`);
+                    this.updateSelectionStatus(`${first} + ${second} = ${result} (Already in collection)`);
+                }
+
+                this.saveGameData();
+                this.updateStats();
+            }
+
+            highlightNewElement(elementName, isDiscovery) {
+                // Find the button for the new element and highlight it
+                setTimeout(() => {
+                    const buttons = document.querySelectorAll('.element-button');
+                    buttons.forEach(button => {
+                        const buttonText = button.textContent.replace(/^#\d+\s*/, '').replace('★ NEW! ', '').replace(' (Discovery)', '').replace(' (LOCKED)', '');
+                        if (buttonText === elementName) {
+                            if (isDiscovery) {
+                                button.classList.add('new-discovery');
+                                // Remove the class after animation completes
+                                setTimeout(() => {
+                                    button.classList.remove('new-discovery');
+                                }, 2000);
+                            } else {
+                                button.style.background = 'linear-gradient(135deg, #9f7aea 0%, #805ad5 100%)';
+                                setTimeout(() => {
+                                    button.style.background = '';
+                                }, 2000);
+                            }
+                        }
+                    });
+                }, 100);
+            }
+
+            clearSelection() {
+                const selectedButtons = document.querySelectorAll('.element-button.selected');
+                selectedButtons.forEach(button => {
+                    button.classList.remove('selected');
+                    button.removeAttribute('aria-selected');
+                });
+                
+                this.selectedElement = null;
+                if (this.lockedElement) {
+                    this.updateSelectionStatus(`${this.lockedElement} is locked. Choose an element to combine with it.`);
+                } else {
+                    this.updateSelectionStatus('No element selected. Choose your first element.');
+                }
+            }
+
+            updateSelectionStatus(message) {
+                document.getElementById('selection-status').textContent = message;
+            }
+
+            updateStats() {
+                document.getElementById('element-count').textContent = this.elementsData.length;
+                document.getElementById('discovery-count').textContent = this.discoveryCount;
+                document.getElementById('total-combinations').textContent = this.combinationStats.total;
+                
+                const total = this.combinationStats.total;
+                if (total > 0) {
+                    document.getElementById('new-element-rate').textContent = `${((this.combinationStats.newElement / total) * 100).toFixed(2)}%`;
+                    document.getElementById('same-element-rate').textContent = `${((this.combinationStats.sameElement / total) * 100).toFixed(2)}%`;
+                    document.getElementById('nothing-rate').textContent = `${Math.round((this.combinationStats.nothing / total) * 100).toFixed(2)}%`;
+                    document.getElementById('discovery-rate').textContent = `${((this.combinationStats.discovery / total) * 100)}%`;
+                } else {
+                    document.getElementById('new-element-rate').textContent = '0%';
+                    document.getElementById('same-element-rate').textContent = '0%';
+                    document.getElementById('nothing-rate').textContent = '0%';
+                    document.getElementById('discovery-rate').textContent = '0%';
+                }
+            }
+
+            announce(message) {
+                if (!this.enableAnnouncements) return;
+                
+                const announcement = document.getElementById('announcement');
+                announcement.textContent = message;
+                
+                // Clear after a moment to prepare for next announcement
+                setTimeout(() => {
+                    announcement.textContent = '';
+                }, 1000);
+            }
+
+            showLoading(show) {
+                const loading = document.getElementById('loading');
+                if (show) {
+                    loading.classList.add('show');
+                } else {
+                    loading.classList.remove('show');
+                }
+            }
+
+            changeSortOrder(newOrder) {
+                this.sortOrder = newOrder || document.getElementById('sort-select').value;
+                this.saveGameData();
+                this.renderElements();
+            }
+
+            toggleNumbering() {
+                this.showNumbers = document.getElementById('show-numbers').checked;
+                this.saveGameData();
+                this.renderElements();
+            }
+
+            changeFilter(newFilter) {
+                this.currentFilter = newFilter || document.getElementById('filter-select').value;
+                this.saveGameData();
+                this.renderElements();
+            }
+
+            toggleAnnouncements() {
+                this.enableAnnouncements = document.getElementById('enable-announcements').checked;
+                this.saveGameData();
+                this.announce(this.enableAnnouncements ? 'Announcements enabled' : 'Announcements disabled');
+            }
+        }
+
+        // Global functions for the UI controls
+        function clearSelection() {
+            if (window.game) {
+                window.game.clearSelection();
+            }
+        }
+
+        function changeSortOrder() {
+            if (window.game) {
+                window.game.changeSortOrder();
+            }
+        }
+
+        function toggleNumbering() {
+            if (window.game) {
+                window.game.toggleNumbering();
+            }
+        }
+
+        function changeFilter() {
+            if (window.game) {
+                window.game.changeFilter();
+            }
+        }
+
+        function toggleLock() {
+            if (window.game) {
+                window.game.toggleLock();
+            }
+        }
+
+        function toggleAnnouncements() {
+            if (window.game) {
+                window.game.toggleAnnouncements();
+            }
+        }
+
+        function toggleSection(sectionId) {
+            if (window.game) {
+                window.game.toggleSection(sectionId);
+            }
+        }
+
+        function handleCollapsibleKey(event, sectionId) {
+            if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                toggleSection(sectionId);
+            }
+        }
+
+        function saveData() {
+            if (window.game) {
+                window.game.saveDataToFile();
+            }
+        }
+
+        function loadData(event) {
+            if (window.game) {
+                window.game.loadDataFromFile(event);
+            }
+        }
+
+        function showRestartModal() {
+            document.getElementById('restart-modal').classList.add('show');
+        }
+
+        function hideRestartModal() {
+            document.getElementById('restart-modal').classList.remove('show');
+        }
+
+        function confirmRestart() {
+            if (window.game) {
+                hideRestartModal();
+                window.game.restartGame();
+            }
+        }
+
+        // Initialize the game when the page loads
+        document.addEventListener('DOMContentLoaded', () => {
+            window.game = new AccessibleInfiniteCraft();
+        });
+    </script>
+</body>
+</html>

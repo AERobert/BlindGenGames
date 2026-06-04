@@ -1,0 +1,1366 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rogue: The Dungeons of Doom - Accessible Edition</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#000;color:#0f0;font-family:'Courier New',monospace;font-size:16px;overflow:hidden;height:100vh}
+#app{display:flex;flex-direction:column;height:100vh;padding:4px}
+#message-area{height:1.4em;overflow:hidden;color:#ff0;white-space:nowrap;font-weight:bold}
+#map-display{flex:1;white-space:pre;line-height:1.25;letter-spacing:1px;overflow:hidden;color:#aaa}
+#map-display .player{color:#ff0;font-weight:bold}
+#map-display .monster{color:#f44}
+#map-display .item{color:#0ff}
+#map-display .stairs{color:#f0f}
+#map-display .wall{color:#888}
+#map-display .gold{color:#ff0}
+#status-bar{height:1.4em;color:#fff;white-space:nowrap;font-weight:bold;border-top:1px solid #333}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);border:0}
+#overlay{display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.92);z-index:100;overflow-y:auto;padding:20px;color:#0f0}
+#overlay.active{display:block}
+#overlay h2{color:#ff0;margin-bottom:10px}
+#overlay table{border-collapse:collapse;margin:10px 0}
+#overlay td,#overlay th{padding:2px 8px;text-align:left}
+#overlay .close-hint{color:#888;margin-top:10px}
+#settings-panel{display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#111;border:2px solid #0f0;padding:20px;z-index:200;min-width:300px}
+#settings-panel.active{display:block}
+#settings-panel label{display:block;margin:8px 0 4px;color:#0f0}
+#settings-panel select,#settings-panel input{width:100%;padding:4px;background:#000;color:#0f0;border:1px solid #0f0}
+#settings-panel button{margin-top:12px;padding:6px 16px;background:#0f0;color:#000;border:none;cursor:pointer;font-family:inherit}
+</style>
+</head>
+<body>
+<div id="app" role="application" aria-label="Rogue: The Dungeons of Doom. Use keyboard to play. Press question mark for help.">
+<div id="message-area" role="log" aria-live="assertive" aria-atomic="true"></div>
+<pre id="map-display" aria-hidden="true"></pre>
+<div id="status-bar" role="status" aria-live="polite"></div>
+<div id="sr-output" class="sr-only" aria-live="assertive" aria-atomic="true"></div>
+</div>
+<div id="overlay" role="dialog" aria-label="Information panel"><div id="overlay-content"></div></div>
+<div id="settings-panel" role="dialog" aria-label="Settings">
+<h2>Settings</h2>
+<label for="voice-select">Voice</label>
+<select id="voice-select" aria-label="Select speech voice"></select>
+<label for="rate-slider">Speech Rate: <span id="rate-value">4.0</span></label>
+<input type="range" id="rate-slider" min="0.5" max="10" step="0.5" value="4" aria-label="Speech rate">
+<label for="vol-slider">Sound Volume: <span id="vol-value">50</span>%</label>
+<input type="range" id="vol-slider" min="0" max="100" step="5" value="50" aria-label="Sound effects volume">
+<button id="settings-close" aria-label="Close settings">Close (F2)</button>
+</div>
+<script>
+'use strict';
+// ============== CONSTANTS ==============
+const COLS=80,ROWS=22,MAX_LEVEL=26;
+const T_FLOOR='.',T_WALL_H='-',T_WALL_V='|',T_CORR='#',T_DOOR='+',T_DN='>',T_UP='<',T_NOTHING=' ',T_TRAP='^';
+const AMULET_LEVEL=26;
+
+// Grid label helpers (battleship style: rows A-V, cols 1-80)
+function gridLabel(r,c){return String.fromCharCode(65+r)+(c+1);}
+
+// Experience table (index=level, value=xp needed)
+const EXP_TABLE=[0,10,20,40,80,160,320,640,1300,2600,5200,13000,26000,50000,100000,200000,400000,800000,2000000,4000000,8000000];
+
+// Strength bonuses (index=strength value 0-31)
+const STR_PLUS=[-7,-6,-5,-4,-3,-2,-1,0,0,0,0,0,0,0,0,0,0,1,1,1,1,2,2,2,2,2,2,2,2,2,2,3];
+const ADD_DAM=[-7,-6,-5,-4,-3,-2,-1,0,0,0,0,0,0,0,0,0,1,1,2,3,3,4,5,5,5,5,5,5,5,5,5,6];
+
+// Rank titles
+const RANKS=['Adventurer','Guild Novice','Apprentice','Journeyman','Swordsman','Hero','Warrior','Champion','Master','Legend','Grand Master'];
+
+// Monster definitions [symbol, name, level, armor, hpDice, damage, exp, flags, startLevel]
+const F_MEAN=1,F_FLY=2,F_REGEN=4,F_INVIS=8,F_GREED=16,F_HOLD=32,F_DRAIN=64,F_RUST=128,F_STEAL_GOLD=256,F_STEAL_ITEM=512,F_CONFUSE=1024,F_FREEZE=2048;
+const MONSTER_DEFS=[
+['A','Aquator',5,2,{n:5,s:8},'0x0/0x0',20,F_MEAN|F_RUST,6],
+['B','Bat',1,3,{n:1,s:8},'1x2',1,F_FLY,1],
+['C','Centaur',4,4,{n:4,s:8},'1x2/1x5/1x5',17,0,7],
+['D','Dragon',10,-1,{n:10,s:8},'1x8/1x8/3x10',5000,F_MEAN,21],
+['E','Emu',1,7,{n:1,s:8},'1x2',2,F_MEAN,1],
+['F','Venus Flytrap',8,3,{n:8,s:8},'0x0',80,F_MEAN|F_HOLD,12],
+['G','Griffin',13,2,{n:13,s:8},'4x3/3x5',2000,F_MEAN|F_FLY|F_REGEN,17],
+['H','Hobgoblin',1,5,{n:1,s:8},'1x8',3,F_MEAN,1],
+['I','Ice Monster',1,9,{n:1,s:8},'0x0',5,F_FREEZE,1],
+['J','Jabberwock',15,6,{n:15,s:8},'2x12/2x4',3000,0,21],
+['K','Kestrel',1,7,{n:1,s:8},'1x4',1,F_MEAN|F_FLY,1],
+['L','Leprechaun',3,8,{n:3,s:8},'1x1',10,F_STEAL_GOLD,6],
+['M','Medusa',8,2,{n:8,s:8},'3x4/3x4/2x5',200,F_MEAN|F_CONFUSE,18],
+['N','Nymph',3,9,{n:3,s:8},'0x0',37,F_STEAL_ITEM,11],
+['O','Orc',1,6,{n:1,s:8},'1x8',5,F_GREED,4],
+['P','Phantom',8,3,{n:8,s:8},'4x4',120,F_INVIS,15],
+['Q','Quagga',3,3,{n:3,s:8},'1x5/1x5',15,F_MEAN,3],
+['R','Rattlesnake',2,3,{n:2,s:8},'1x6',9,F_MEAN|F_DRAIN,4],
+['S','Snake',1,5,{n:1,s:8},'1x3',2,F_MEAN,1],
+['T','Troll',6,4,{n:6,s:8},'1x8/1x8/2x6',120,F_REGEN|F_MEAN,13],
+['U','Black Unicorn',7,-2,{n:7,s:8},'1x9/1x9/2x9',190,F_MEAN,16],
+['V','Vampire',8,1,{n:8,s:8},'1x10',350,F_MEAN|F_REGEN|F_DRAIN,19],
+['W','Wraith',5,4,{n:5,s:8},'1x6',55,F_DRAIN,14],
+['X','Xeroc',7,7,{n:7,s:8},'4x4',100,0,11],
+['Y','Yeti',4,6,{n:4,s:8},'1x6/1x6',50,0,8],
+['Z','Zombie',2,8,{n:2,s:8},'1x8',6,F_MEAN,4]
+];
+
+// Weapon definitions [name, damage, hurl_damage, wield_char, worth, init_plus_hit, init_plus_dam]
+const WEAPON_DEFS=[
+['mace','2x4','1x3',')',8,1,1],
+['long sword','3x4','1x2',')',15,1,0],
+['short bow','1x1','1x1',')',15,0,0],
+['arrow','1x1','2x3',')',1,0,0],
+['dagger','1x6','1x4',')',3,2,1],
+['two-handed sword','4x4','1x2',')',75,0,0],
+['dart','1x1','1x3',')',2,0,0],
+['shuriken','1x2','2x4',')',5,0,0],
+['spear','2x3','1x6',')',5,0,0]
+];
+
+// Armor definitions [name, ac, worth]
+const ARMOR_DEFS=[
+['leather armor',8,20],['ring mail',7,25],['studded leather armor',7,15],
+['scale mail',6,30],['chain mail',5,75],['splint mail',4,80],
+['banded mail',4,90],['plate mail',3,150]
+];
+
+// Potion names (shuffled per game), effects
+const POTION_NAMES=['blue','red','green','grey','brown','clear','pink','white','purple','black','orange','silver','gold','crimson'];
+const POTION_TYPES=['confusion','hallucination','poison','gain strength','see invisible','healing','monster detection','magic detection','raise level','extra healing','haste self','restore strength','blindness','levitation'];
+
+// Scroll names (shuffled per game)
+const SCROLL_SYLLABLES=['blech','foo','barf','rech','bar','hrung','zap','ork','gorp','barg','blah','sni','woo','snark'];
+const SCROLL_TYPES=['monster confusion','magic mapping','hold monster','sleep','enchant armor','identify','scare monster','teleportation','enchant weapon','create monster','remove curse','aggravate monsters','protect armor','blank paper'];
+
+// Food types
+const FOOD_TYPES=['some food','a slime mold'];
+
+// ============== UTILITY ==============
+function rnd(n){return Math.floor(Math.random()*n);}
+function roll(n,s){let t=0;for(let i=0;i<n;i++)t+=rnd(s)+1;return t;}
+function clamp(v,lo,hi){return Math.max(lo,Math.min(hi,v));}
+function parseDamage(s){return s.split('/').map(d=>{const p=d.split('x');return{n:+p[0],s:+p[1]};});}
+function dist(r1,c1,r2,c2){return Math.abs(r1-r2)+Math.abs(c1-c2);}
+function shuffle(a){for(let i=a.length-1;i>0;i--){const j=rnd(i+1);[a[i],a[j]]=[a[j],a[i]];}return a;}
+
+// ============== SPEECH ENGINE ==============
+const speech={
+  synth:window.speechSynthesis,
+  rate:4.0,
+  voiceIdx:0,
+  voices:[],
+  paused:false,
+  queue:[],
+  speaking:false,
+
+  init(){
+    const load=()=>{
+      this.voices=this.synth.getVoices();
+      const sel=document.getElementById('voice-select');
+      sel.innerHTML='';
+      this.voices.forEach((v,i)=>{
+        const o=document.createElement('option');
+        o.value=i;o.textContent=v.name+(v.lang?' ('+v.lang+')':'');
+        sel.appendChild(o);
+      });
+    };
+    this.synth.onvoiceschanged=load;
+    load();
+    document.getElementById('rate-slider').addEventListener('input',e=>{
+      this.rate=parseFloat(e.target.value);
+      document.getElementById('rate-value').textContent=this.rate.toFixed(1);
+    });
+    document.getElementById('voice-select').addEventListener('change',e=>{
+      this.voiceIdx=parseInt(e.target.value);
+    });
+  },
+
+  say(text,interrupt=false){
+    if(!text)return;
+    if(interrupt){this.synth.cancel();this.queue=[];}
+    this.queue.push(text);
+    if(!this.speaking)this._next();
+    // Also update screen reader output
+    const sr=document.getElementById('sr-output');
+    sr.textContent='';
+    requestAnimationFrame(()=>{sr.textContent=text;});
+  },
+
+  _next(){
+    if(this.queue.length===0){this.speaking=false;return;}
+    if(this.paused){this.speaking=false;return;}
+    this.speaking=true;
+    const text=this.queue.shift();
+    const u=new SpeechSynthesisUtterance(text);
+    u.rate=this.rate;
+    if(this.voices.length>0)u.voice=this.voices[this.voiceIdx];
+    u.onend=()=>this._next();
+    u.onerror=()=>this._next();
+    this.synth.speak(u);
+  },
+
+  togglePause(){
+    this.paused=!this.paused;
+    if(this.paused){
+      this.synth.pause();
+      showMessage('Speech paused');
+    } else {
+      this.synth.resume();
+      if(!this.speaking)this._next();
+      showMessage('Speech resumed');
+    }
+  },
+
+  clear(){this.synth.cancel();this.queue=[];this.speaking=false;}
+};
+
+// ============== AUDIO ENGINE ==============
+const audio={
+  ctx:null,
+  vol:0.5,
+  init(){
+    this.ctx=new(window.AudioContext||window.webkitAudioContext)();
+    document.getElementById('vol-slider').addEventListener('input',e=>{
+      this.vol=parseInt(e.target.value)/100;
+      document.getElementById('vol-value').textContent=parseInt(e.target.value);
+    });
+  },
+  resume(){if(this.ctx&&this.ctx.state==='suspended')this.ctx.resume();},
+  tone(freq,dur,type='square',volMul=1){
+    if(!this.ctx)return;
+    const o=this.ctx.createOscillator();
+    const g=this.ctx.createGain();
+    o.type=type;o.frequency.value=freq;
+    g.gain.value=this.vol*volMul;
+    g.gain.exponentialRampToValueAtTime(0.001,this.ctx.currentTime+dur);
+    o.connect(g);g.connect(this.ctx.destination);
+    o.start();o.stop(this.ctx.currentTime+dur);
+  },
+  noise(dur,volMul=1){
+    if(!this.ctx)return;
+    const buf=this.ctx.createBuffer(1,this.ctx.sampleRate*dur,this.ctx.sampleRate);
+    const d=buf.getChannelData(0);
+    for(let i=0;i<d.length;i++)d[i]=(Math.random()*2-1);
+    const s=this.ctx.createBufferSource();
+    const g=this.ctx.createGain();
+    s.buffer=buf;g.gain.value=this.vol*0.3*volMul;
+    g.gain.exponentialRampToValueAtTime(0.001,this.ctx.currentTime+dur);
+    s.connect(g);g.connect(this.ctx.destination);
+    s.start();
+  },
+  hit(){this.noise(0.1);this.tone(200,0.1,'sawtooth');},
+  miss(){this.tone(100,0.15,'sine',0.3);},
+  pickup(){this.tone(600,0.08);this.tone(800,0.08);},
+  stairs(){this.tone(400,0.15);setTimeout(()=>this.tone(300,0.15),100);setTimeout(()=>this.tone(200,0.2),200);},
+  death(){this.tone(150,0.5,'sawtooth');setTimeout(()=>this.tone(100,0.8,'sawtooth'),300);},
+  levelUp(){this.tone(400,0.1);setTimeout(()=>this.tone(500,0.1),100);setTimeout(()=>this.tone(600,0.1),200);setTimeout(()=>this.tone(800,0.2),300);},
+  step(){this.tone(80,0.03,'sine',0.1);},
+  eat(){this.tone(300,0.08);this.tone(400,0.08);this.tone(500,0.12);}
+};
+
+// ============== DUNGEON GENERATION ==============
+function generateDungeon(depth){
+  const map=[];
+  for(let r=0;r<ROWS;r++){map[r]=[];for(let c=0;c<COLS;c++)map[r][c]=T_NOTHING;}
+  const rooms=[];
+  const SECT_W=Math.floor(COLS/3);
+  const SECT_H=Math.floor(ROWS/3);
+
+  // Generate up to 9 rooms in 3x3 grid
+  for(let gr=0;gr<3;gr++){
+    for(let gc=0;gc<3;gc++){
+      // Each room has a chance to exist (higher chance = more rooms)
+      if(rnd(100)<15&&rooms.length>1)continue; // ~15% chance to skip after first 2
+      const sx=gc*SECT_W+1;
+      const sy=gr*SECT_H+1;
+      const maxW=SECT_W-3;
+      const maxH=SECT_H-3;
+      const w=rnd(Math.max(1,maxW-4))+4;
+      const h=rnd(Math.max(1,maxH-3))+3;
+      const x=sx+rnd(Math.max(1,SECT_W-w-2));
+      const y=sy+rnd(Math.max(1,SECT_H-h-2));
+      const room={x,y,w,h,gr,gc,exits:[],lit:depth<3||rnd(10)<7};
+      rooms.push(room);
+      // Draw room
+      for(let r=y;r<y+h&&r<ROWS;r++){
+        for(let c=x;c<x+w&&c<COLS;c++){
+          if(r===y||r===y+h-1)map[r][c]=T_WALL_H;
+          else if(c===x||c===x+w-1)map[r][c]=T_WALL_V;
+          else map[r][c]=T_FLOOR;
+        }
+      }
+    }
+  }
+
+  // Ensure at least 2 rooms
+  if(rooms.length<2){
+    const r={x:5,y:3,w:12,h:5,gr:0,gc:0,exits:[],lit:true};
+    rooms.push(r);
+    for(let row=r.y;row<r.y+r.h;row++)for(let col=r.x;col<r.x+r.w;col++){
+      if(row===r.y||row===r.y+r.h-1)map[row][col]=T_WALL_H;
+      else if(col===r.x||col===r.x+r.w-1)map[row][col]=T_WALL_V;
+      else map[row][col]=T_FLOOR;
+    }
+  }
+
+  // Connect rooms with corridors
+  function roomCenter(rm){return{r:Math.floor(rm.y+rm.h/2),c:Math.floor(rm.x+rm.w/2)};}
+  function carveCorridor(r1,c1,r2,c2){
+    let r=r1,c=c1;
+    // Go horizontal first, then vertical
+    while(c!==c2){
+      c+=c<c2?1:-1;
+      if(r>=0&&r<ROWS&&c>=0&&c<COLS&&map[r][c]===T_NOTHING)map[r][c]=T_CORR;
+      else if(r>=0&&r<ROWS&&c>=0&&c<COLS&&(map[r][c]===T_WALL_H||map[r][c]===T_WALL_V))map[r][c]=T_DOOR;
+    }
+    while(r!==r2){
+      r+=r<r2?1:-1;
+      if(r>=0&&r<ROWS&&c>=0&&c<COLS&&map[r][c]===T_NOTHING)map[r][c]=T_CORR;
+      else if(r>=0&&r<ROWS&&c>=0&&c<COLS&&(map[r][c]===T_WALL_H||map[r][c]===T_WALL_V))map[r][c]=T_DOOR;
+    }
+  }
+  for(let i=0;i<rooms.length-1;i++){
+    const a=roomCenter(rooms[i]),b=roomCenter(rooms[i+1]);
+    carveCorridor(a.r,a.c,b.r,b.c);
+  }
+  // Extra random corridor for connectivity
+  if(rooms.length>2){
+    const a=roomCenter(rooms[0]),b=roomCenter(rooms[rooms.length-1]);
+    carveCorridor(a.r,a.c,b.r,b.c);
+  }
+
+  // Place stairs
+  const stairRoom=rooms[rooms.length-1];
+  const sr=stairRoom.y+1+rnd(stairRoom.h-2);
+  const sc=stairRoom.x+1+rnd(stairRoom.w-2);
+  if(depth<MAX_LEVEL)map[sr][sc]=T_DN;
+
+  // Place Amulet of Yendor on level 26
+  if(depth>=AMULET_LEVEL){
+    const aRoom=rooms[rnd(rooms.length)];
+    const ar=aRoom.y+1+rnd(Math.max(1,aRoom.h-2));
+    const ac=aRoom.x+1+rnd(Math.max(1,aRoom.w-2));
+    if(map[ar][ac]===T_FLOOR)map[ar][ac]=',';
+  }
+
+  // Place up stairs in first room (except level 1)
+  if(depth>1){
+    const upRoom=rooms[0];
+    const ur=upRoom.y+1+rnd(upRoom.h-2);
+    const uc=upRoom.x+1+rnd(upRoom.w-2);
+    map[ur][uc]=T_UP;
+  }
+
+  // Place some traps
+  const numTraps=rnd(depth<5?1:3);
+  for(let i=0;i<numTraps;i++){
+    const rm=rooms[rnd(rooms.length)];
+    const tr=rm.y+1+rnd(Math.max(1,rm.h-2));
+    const tc=rm.x+1+rnd(Math.max(1,rm.w-2));
+    if(map[tr][tc]===T_FLOOR)map[tr][tc]=T_TRAP;
+  }
+
+  return{map,rooms};
+}
+
+// ============== GAME STATE ==============
+const game={
+  map:[],rooms:[],depth:1,turn:0,
+  player:null,monsters:[],items:[],
+  messages:[],gameOver:false,hasAmulet:false,
+  identified:{potions:{},scrolls:{}},
+  potionColors:[],scrollLabels:[],
+  overlayOpen:false,settingsOpen:false,
+  explored:[],running:false,runDir:null,
+
+  init(){
+    // Shuffle potion/scroll names for this game
+    this.potionColors=shuffle([...POTION_NAMES]);
+    this.scrollLabels=[];
+    for(let i=0;i<SCROLL_TYPES.length;i++){
+      this.scrollLabels.push(shuffle([...SCROLL_SYLLABLES]).slice(0,rnd(2)+2).join(' '));
+    }
+    this.newLevel(1);
+  },
+
+  newLevel(depth){
+    this.depth=depth;
+    this.monsters=[];
+    this.items=[];
+    const dun=generateDungeon(depth);
+    this.map=dun.map;
+    this.rooms=dun.rooms;
+    this.explored=[];
+    for(let r=0;r<ROWS;r++){this.explored[r]=[];for(let c=0;c<COLS;c++)this.explored[r][c]=false;}
+
+    // Place player in first room
+    if(!this.player){
+      this.player={
+        r:0,c:0,hp:12,maxHp:12,str:16,maxStr:16,
+        exp:0,level:1,ac:8,gold:0,
+        weapon:null,armor:null,rings:[null,null],
+        inventory:[],food:1300,hunger:0,hungerState:'',
+        confused:0,blind:0,haste:0,levitating:0,seeInvis:0
+      };
+      // Starting equipment
+      const mace={type:'weapon',which:0,name:'mace',damage:'2x4',hurl:'1x3',hplus:1,dplus:1,cursed:false};
+      const bow={type:'weapon',which:2,name:'short bow',damage:'1x1',hurl:'1x1',hplus:1,dplus:0,cursed:false};
+      const arrows={type:'weapon',which:3,name:'31 arrows',damage:'1x1',hurl:'2x3',hplus:0,dplus:0,count:31,cursed:false};
+      const armor={type:'armor',which:4,name:'ring mail',ac:7,plus:0,cursed:false};
+      this.player.inventory=[mace,bow,arrows,armor,{type:'food',name:'some food',which:0}];
+      this.player.weapon=mace;
+      this.player.armor=armor;
+      this.player.ac=armor.ac;
+    }
+    const startRoom=this.rooms[0];
+    this.player.r=startRoom.y+1+rnd(Math.max(1,startRoom.h-2));
+    this.player.c=startRoom.x+1+rnd(Math.max(1,startRoom.w-2));
+
+    // Place monsters
+    const numMon=rnd(3)+3+Math.floor(depth/3);
+    for(let i=0;i<numMon;i++)this.placeMonster();
+
+    // Place items
+    const numItems=rnd(3)+2;
+    for(let i=0;i<numItems;i++)this.placeItem();
+
+    // Place gold in some rooms
+    for(const rm of this.rooms){
+      if(rnd(100)<50){
+        const gr=rm.y+1+rnd(Math.max(1,rm.h-2));
+        const gc=rm.x+1+rnd(Math.max(1,rm.w-2));
+        if(this.map[gr][gc]===T_FLOOR&&!(gr===this.player.r&&gc===this.player.c)){
+          this.items.push({type:'gold',r:gr,c:gc,amount:rnd(50+depth*10)+1,symbol:'*',name:'gold'});
+        }
+      }
+    }
+
+    this.revealRoom(this.player.r,this.player.c);
+    this.announceRoom();
+  },
+
+  placeMonster(){
+    const eligible=MONSTER_DEFS.filter(m=>this.depth>=m[8]);
+    if(eligible.length===0)return;
+    const def=eligible[rnd(eligible.length)];
+    const rm=this.rooms[rnd(this.rooms.length)];
+    const mr=rm.y+1+rnd(Math.max(1,rm.h-2));
+    const mc=rm.x+1+rnd(Math.max(1,rm.w-2));
+    if(mr===this.player?.r&&mc===this.player?.c)return;
+    if(this.monsterAt(mr,mc))return;
+    const hp=roll(def[4].n,def[4].s);
+    this.monsters.push({
+      symbol:def[0],name:def[1],level:def[2],ac:def[3],
+      hp,maxHp:hp,damage:def[5],exp:def[6],flags:def[7],
+      r:mr,c:mc,asleep:!(def[7]&F_MEAN),confused:0,held:false
+    });
+  },
+
+  placeItem(){
+    const rm=this.rooms[rnd(this.rooms.length)];
+    const ir=rm.y+1+rnd(Math.max(1,rm.h-2));
+    const ic=rm.x+1+rnd(Math.max(1,rm.w-2));
+    if(ir===this.player?.r&&ic===this.player?.c)return;
+    if(this.itemAt(ir,ic))return;
+    const roll_=rnd(100);
+    let item;
+    if(roll_<25){
+      const w=rnd(POTION_TYPES.length);
+      item={type:'potion',which:w,name:this.potionColors[w]+' potion',realName:POTION_TYPES[w],symbol:'!',r:ir,c:ic};
+    }else if(roll_<50){
+      const w=rnd(SCROLL_TYPES.length);
+      item={type:'scroll',which:w,name:'scroll labeled '+this.scrollLabels[w],realName:SCROLL_TYPES[w],symbol:'?',r:ir,c:ic};
+    }else if(roll_<65){
+      const w=rnd(WEAPON_DEFS.length);
+      const d=WEAPON_DEFS[w];
+      const plus=rnd(3);
+      item={type:'weapon',which:w,name:d[0],damage:d[1],hurl:d[2],hplus:d[5]+plus,dplus:d[6],symbol:')',r:ir,c:ic,cursed:rnd(10)<1};
+    }else if(roll_<80){
+      const w=rnd(ARMOR_DEFS.length);
+      const d=ARMOR_DEFS[w];
+      const plus=rnd(3);
+      item={type:'armor',which:w,name:d[0],ac:d[1]-plus,plus,symbol:']',r:ir,c:ic,cursed:rnd(10)<1};
+    }else if(roll_<95){
+      item={type:'food',which:rnd(2),name:FOOD_TYPES[rnd(2)],symbol:'%',r:ir,c:ic};
+    }else{
+      item={type:'gold',amount:rnd(50+this.depth*10)+1,symbol:'*',name:'gold',r:ir,c:ic};
+    }
+    this.items.push(item);
+  },
+
+  monsterAt(r,c){return this.monsters.find(m=>m.r===r&&m.c===c);},
+  itemAt(r,c){return this.items.find(i=>i.r===r&&i.c===c);},
+
+  revealRoom(pr,pc){
+    // Find which room player is in and reveal it
+    for(const rm of this.rooms){
+      if(pr>=rm.y&&pr<rm.y+rm.h&&pc>=rm.x&&pc<rm.x+rm.w){
+        for(let r=rm.y;r<rm.y+rm.h;r++)
+          for(let c=rm.x;c<rm.x+rm.w;c++)
+            this.explored[r][c]=true;
+        return;
+      }
+    }
+    // In corridor - reveal nearby
+    for(let dr=-1;dr<=1;dr++)for(let dc=-1;dc<=1;dc++){
+      const nr=pr+dr,nc=pc+dc;
+      if(nr>=0&&nr<ROWS&&nc>=0&&nc<COLS)this.explored[nr][nc]=true;
+    }
+  },
+
+  announceRoom(){
+    const p=this.player;
+    let inRoom=null;
+    for(const rm of this.rooms){
+      if(p.r>=rm.y&&p.r<rm.y+rm.h&&p.c>=rm.x&&p.c<rm.x+rm.w){inRoom=rm;break;}
+    }
+    if(inRoom){
+      const monsInRoom=this.monsters.filter(m=>m.r>=inRoom.y&&m.r<inRoom.y+inRoom.h&&m.c>=inRoom.x&&m.c<inRoom.x+inRoom.w);
+      const itemsInRoom=this.items.filter(i=>i.r>=inRoom.y&&i.r<inRoom.y+inRoom.h&&i.c>=inRoom.x&&i.c<inRoom.x+inRoom.w);
+      let desc=`Dungeon level ${this.depth}. You are in a ${inRoom.w-2} by ${inRoom.h-2} room at ${gridLabel(p.r,p.c)}.`;
+      if(monsInRoom.length>0)desc+=` ${monsInRoom.length} monster${monsInRoom.length>1?'s':''}: ${monsInRoom.map(m=>m.name).join(', ')}.`;
+      if(itemsInRoom.length>0)desc+=` ${itemsInRoom.length} item${itemsInRoom.length>1?'s':''} on the floor.`;
+      speech.say(desc,true);
+    }else{
+      speech.say(`Dungeon level ${this.depth}. Corridor at ${gridLabel(p.r,p.c)}.`,true);
+    }
+  },
+
+  describeSurroundings(){
+    const p=this.player;
+    const dirs=[[-1,-1,'northwest'],[-1,0,'north'],[-1,1,'northeast'],[0,-1,'west'],[0,1,'east'],[1,-1,'southwest'],[1,0,'south'],[1,1,'southeast']];
+    let parts=[];
+    for(const[dr,dc,name] of dirs){
+      const nr=p.r+dr,nc=p.c+dc;
+      if(nr<0||nr>=ROWS||nc<0||nc>=COLS){parts.push(name+': wall');continue;}
+      const m=this.monsterAt(nr,nc);
+      if(m){parts.push(name+': '+m.name);continue;}
+      const it=this.itemAt(nr,nc);
+      const tile=this.map[nr][nc];
+      if(it)parts.push(name+': '+it.name);
+      else if(tile===T_DOOR)parts.push(name+': door');
+      else if(tile===T_DN)parts.push(name+': stairs down');
+      else if(tile===T_UP)parts.push(name+': stairs up');
+      else if(tile===T_WALL_H||tile===T_WALL_V)parts.push(name+': wall');
+      else if(tile===T_CORR)parts.push(name+': corridor');
+      else if(tile===T_TRAP)parts.push(name+': trap');
+      else if(tile===T_FLOOR)parts.push(name+': floor');
+      else parts.push(name+': nothing');
+    }
+    speech.say('Surroundings. '+parts.join('. ')+'.',true);
+  },
+
+  movePlayer(dr,dc){
+    if(this.gameOver)return;
+    const p=this.player;
+    let mr=dr,mc=dc;
+    // Confusion: randomize direction
+    if(p.confused>0){mr=rnd(3)-1;mc=rnd(3)-1;if(mr===0&&mc===0)mc=1;}
+    const nr=p.r+mr,nc=p.c+mc;
+    if(nr<0||nr>=ROWS||nc<0||nc>=COLS)return;
+    const tile=this.map[nr][nc];
+    if(tile===T_WALL_H||tile===T_WALL_V||tile===T_NOTHING){
+      if(this.running){this.running=false;return;}
+      speech.say('Wall.');
+      return;
+    }
+    // Monster combat
+    const mon=this.monsterAt(nr,nc);
+    if(mon){
+      this.playerAttack(mon);
+      this.endTurn();
+      return;
+    }
+    // Move
+    p.r=nr;p.c=nc;
+    audio.step();
+    this.revealRoom(nr,nc);
+    // Announce position
+    let posDesc=gridLabel(nr,nc);
+    if(tile===T_DOOR)posDesc+=', door';
+    else if(tile===T_DN)posDesc+=', stairs down';
+    else if(tile===T_UP)posDesc+=', stairs up';
+    else if(tile===T_CORR)posDesc+=', corridor';
+    else if(tile===T_TRAP){
+      posDesc+=', trap!';
+      this.triggerTrap(nr,nc);
+    }
+    // Check for Amulet of Yendor
+    if(tile===','){
+      this.hasAmulet=true;
+      this.map[nr][nc]=T_FLOOR;
+      audio.levelUp();
+      posDesc+='. You found the Amulet of Yendor!';
+      showMessage('You found the Amulet of Yendor! Now find the exit!');
+      speech.say('You found the Amulet of Yendor! Head back up to level 1 to win!');
+    }
+    // Check for items
+    const item=this.itemAt(nr,nc);
+    if(item){
+      if(item.type==='gold'){
+        p.gold+=item.amount;
+        this.items.splice(this.items.indexOf(item),1);
+        audio.pickup();
+        posDesc+=`. Picked up ${item.amount} gold`;
+        showMessage(`You found ${item.amount} gold pieces.`);
+      }else{
+        posDesc+=`. ${item.name} here`;
+      }
+    }
+    // Check if entered new room
+    let nowInRoom=null;
+    for(const rm of this.rooms){
+      if(nr>=rm.y&&nr<rm.y+rm.h&&nc>=rm.x&&nc<rm.x+rm.w){nowInRoom=rm;break;}
+    }
+    if(!this.running)speech.say(posDesc);
+    // Food/hunger
+    p.food--;
+    if(p.food===300&&p.hungerState!=='hungry'){p.hungerState='hungry';showMessage('You are starting to feel hungry.');speech.say('You are starting to feel hungry.');}
+    if(p.food===150&&p.hungerState!=='weak'){p.hungerState='weak';showMessage('You feel weak from lack of food.');speech.say('You feel weak from lack of food.');}
+    if(p.food<=0){
+      p.hungerState='faint';
+      if(rnd(5)===0){
+        showMessage('You faint from lack of food.');
+        speech.say('You faint from lack of food.');
+      }
+      if(p.food<=-200){
+        showMessage('You starved to death!');
+        speech.say('You starved to death!',true);
+        audio.death();
+        this.gameOver=true;
+        return;
+      }
+    }
+    this.endTurn();
+    // Continue running
+    if(this.running){
+      const nt=this.map[p.r+dr]?.[p.c+dc];
+      const hasMon=this.monsterAt(p.r+dr,p.c+dc);
+      const hasItem=this.itemAt(p.r,p.c);
+      if(!nt||nt===T_WALL_H||nt===T_WALL_V||nt===T_NOTHING||hasMon||hasItem||tile===T_DOOR){
+        this.running=false;
+        speech.say(gridLabel(p.r,p.c));
+      }else{
+        setTimeout(()=>this.movePlayer(dr,dc),50);
+      }
+    }
+  },
+
+  triggerTrap(){
+    const p=this.player;
+    const type=rnd(8);
+    switch(type){
+      case 0:showMessage('A trap door opens below you!');speech.say('Trap door! You fall to the next level.');this.newLevel(this.depth+1);break;
+      case 1:{const dmg=roll(1,6);p.hp-=dmg;showMessage(`An arrow shoots out and hits you for ${dmg} damage!`);speech.say(`Arrow trap! ${dmg} damage.`);if(p.hp<=0)this.playerDeath('an arrow trap');break;}
+      case 2:showMessage('A cloud of gas surrounds you. You fall asleep.');speech.say('Sleeping gas trap! You fall asleep.');break;
+      case 3:showMessage('You stumble into a bear trap!');speech.say('Bear trap! You are held fast.');break;
+      case 4:showMessage('You are teleported!');speech.say('Teleport trap!');this.teleportPlayer();break;
+      case 5:{const dmg=roll(1,4);p.hp-=dmg;p.str=Math.max(3,p.str-1);showMessage(`A small dart hits you! ${dmg} damage.`);speech.say(`Poison dart trap! ${dmg} damage and strength drained.`);if(p.hp<=0)this.playerDeath('a poison dart');break;}
+      case 6:if(p.armor&&!p.armor.cursed){p.armor.ac=Math.min(10,p.armor.ac+1);p.ac=p.armor.ac;showMessage('A gush of water hits your armor!');speech.say('Rust trap! Your armor is weakened.');}else{showMessage('A gush of water hits you.');speech.say('Rust trap, but no effect.');}break;
+      case 7:showMessage('You hear a strange noise.');speech.say('A mysterious trap. Nothing seems to happen.');break;
+    }
+  },
+
+  teleportPlayer(){
+    const rm=this.rooms[rnd(this.rooms.length)];
+    this.player.r=rm.y+1+rnd(Math.max(1,rm.h-2));
+    this.player.c=rm.x+1+rnd(Math.max(1,rm.w-2));
+    this.revealRoom(this.player.r,this.player.c);
+    speech.say('You appear at '+gridLabel(this.player.r,this.player.c)+'.');
+  },
+
+  playerAttack(mon){
+    const p=this.player;
+    const w=p.weapon;
+    const strIdx=clamp(p.str,0,31);
+    const wplus=w?(w.hplus+STR_PLUS[strIdx]):STR_PLUS[strIdx];
+    const hitRoll=rnd(20);
+    const need=(20-p.level)-mon.ac;
+    if(hitRoll+wplus>=need){
+      // Hit
+      let dmg=0;
+      if(w){
+        const dd=parseDamage(w.damage);
+        for(const d of dd)dmg+=roll(d.n,d.s);
+        dmg+=w.dplus+ADD_DAM[strIdx];
+      }else{
+        dmg=roll(1,2)+ADD_DAM[strIdx];
+      }
+      dmg=Math.max(1,dmg);
+      mon.hp-=dmg;
+      audio.hit();
+      showMessage(`You hit the ${mon.name} for ${dmg} damage.`);
+      speech.say(`Hit ${mon.name}, ${dmg} damage.`);
+      if(mon.hp<=0){
+        this.killMonster(mon);
+      }
+    }else{
+      audio.miss();
+      showMessage(`You miss the ${mon.name}.`);
+      speech.say(`Miss ${mon.name}.`);
+    }
+    mon.asleep=false;
+  },
+
+  killMonster(mon){
+    const p=this.player;
+    p.exp+=mon.exp;
+    showMessage(`You defeated the ${mon.name}! (+${mon.exp} exp)`);
+    speech.say(`Killed ${mon.name}. Plus ${mon.exp} experience.`);
+    this.monsters.splice(this.monsters.indexOf(mon),1);
+    // Check level up
+    while(p.level<EXP_TABLE.length-1&&p.exp>=EXP_TABLE[p.level]){
+      p.level++;
+      const hpGain=roll(1,10);
+      p.maxHp+=hpGain;
+      p.hp=Math.min(p.hp+hpGain,p.maxHp);
+      audio.levelUp();
+      showMessage(`Welcome to level ${p.level}! +${hpGain} HP.`);
+      speech.say(`Level up! You are now level ${p.level}. Plus ${hpGain} hit points.`);
+    }
+    // Drop gold sometimes
+    if(rnd(100)<30){
+      const g=rnd(mon.level*10)+1;
+      this.items.push({type:'gold',r:mon.r,c:mon.c,amount:g,symbol:'*',name:'gold'});
+    }
+  },
+
+  monsterAttack(mon){
+    const p=this.player;
+    const hitRoll=rnd(20);
+    const need=(20-mon.level)-p.ac;
+    const attacks=parseDamage(mon.damage);
+    let totalDmg=0;
+    let didHit=false;
+    for(const atk of attacks){
+      if(atk.n===0)continue;
+      if(rnd(20)>=need){
+        totalDmg+=roll(atk.n,atk.s);
+        didHit=true;
+      }
+    }
+    if(didHit&&totalDmg>0){
+      p.hp-=totalDmg;
+      audio.hit();
+      showMessage(`The ${mon.name} hits you for ${totalDmg} damage.`);
+      speech.say(`${mon.name} hits you, ${totalDmg} damage. HP ${p.hp}.`);
+      // Special attacks
+      if(mon.flags&F_RUST&&p.armor&&!p.armor.cursed){
+        p.armor.ac=Math.min(10,p.armor.ac+1);
+        p.ac=p.armor.ac;
+        showMessage('Your armor weakens!');
+        speech.say('Your armor is weakened by rust!');
+      }
+      if(mon.flags&F_DRAIN&&rnd(3)===0){
+        p.str=Math.max(3,p.str-1);
+        showMessage('You feel weaker!');
+        speech.say('Strength drained!');
+      }
+      if(mon.flags&F_CONFUSE){
+        p.confused=rnd(8)+4;
+        showMessage('You feel confused!');
+        speech.say('You are confused!');
+      }
+      if(mon.flags&F_FREEZE){
+        showMessage('You are frozen!');
+        speech.say('You are frozen in place!');
+      }
+      if(mon.flags&F_STEAL_GOLD){
+        const stolen=Math.min(p.gold,rnd(50)+1);
+        p.gold-=stolen;
+        showMessage(`The ${mon.name} stole ${stolen} gold!`);
+        speech.say(`${mon.name} stole ${stolen} gold!`);
+        this.removeMonster(mon);
+      }
+      if(mon.flags&F_STEAL_ITEM&&p.inventory.length>0){
+        const idx=rnd(p.inventory.length);
+        const stolen=p.inventory.splice(idx,1)[0];
+        showMessage(`The ${mon.name} stole your ${stolen.name}!`);
+        speech.say(`${mon.name} stole your ${stolen.name}!`);
+        this.removeMonster(mon);
+      }
+      if(p.hp<=0)this.playerDeath(mon.name);
+    }else{
+      showMessage(`The ${mon.name} misses you.`);
+      speech.say(`${mon.name} misses.`);
+    }
+  },
+
+  removeMonster(mon){this.monsters.splice(this.monsters.indexOf(mon),1);},
+
+  playerDeath(cause){
+    this.gameOver=true;
+    audio.death();
+    const msg=`You died! Killed by ${cause} on dungeon level ${this.depth} with ${this.player.gold} gold. Press space to restart.`;
+    showMessage(msg);
+    speech.say(msg,true);
+  },
+
+  endTurn(){
+    if(this.gameOver)return;
+    this.turn++;
+    const p=this.player;
+    // Decrement status effects
+    if(p.confused>0){p.confused--;if(p.confused===0){showMessage('You feel less confused.');speech.say('No longer confused.');}}
+    if(p.blind>0){p.blind--;if(p.blind===0){showMessage('You can see again.');speech.say('You can see again.');}}
+    if(p.haste>0){p.haste--;if(p.haste===0){showMessage('You feel yourself slowing down.');speech.say('Haste ended.');}}
+    // Natural healing
+    if(this.turn%((21-p.level)*2)===0&&p.hp<p.maxHp){p.hp=Math.min(p.maxHp,p.hp+1);}
+    // Monster turns
+    this.processMonsters();
+    render();
+  },
+
+  processMonsters(){
+    const p=this.player;
+    for(const mon of[...this.monsters]){
+      if(mon.hp<=0)continue;
+      if(mon.asleep){
+        // Wake up if player is nearby
+        if(dist(mon.r,mon.c,p.r,p.c)<=3&&rnd(3)>0)mon.asleep=false;
+        continue;
+      }
+      // Regeneration
+      if(mon.flags&F_REGEN&&mon.hp<mon.maxHp)mon.hp++;
+      const d=dist(mon.r,mon.c,p.r,p.c);
+      if(d<=1){
+        // Adjacent: attack
+        this.monsterAttack(mon);
+      }else if(d<=6||(mon.flags&F_MEAN)){
+        // Chase player
+        this.moveMonsterToward(mon,p.r,p.c);
+      }else if(mon.flags&F_FLY){
+        // Flying monsters: random movement
+        const dr=rnd(3)-1,dc=rnd(3)-1;
+        this.tryMoveMonster(mon,mon.r+dr,mon.c+dc);
+      }
+    }
+  },
+
+  moveMonsterToward(mon,tr,tc){
+    let bestR=mon.r,bestC=mon.c,bestD=dist(mon.r,mon.c,tr,tc);
+    for(let dr=-1;dr<=1;dr++){
+      for(let dc=-1;dc<=1;dc++){
+        if(dr===0&&dc===0)continue;
+        const nr=mon.r+dr,nc=mon.c+dc;
+        if(nr<0||nr>=ROWS||nc<0||nc>=COLS)continue;
+        const t=this.map[nr][nc];
+        if(t===T_WALL_H||t===T_WALL_V||t===T_NOTHING)continue;
+        if(this.monsterAt(nr,nc))continue;
+        if(nr===this.player.r&&nc===this.player.c)continue;
+        const d=dist(nr,nc,tr,tc);
+        if(d<bestD){bestD=d;bestR=nr;bestC=nc;}
+      }
+    }
+    mon.r=bestR;mon.c=bestC;
+  },
+
+  tryMoveMonster(mon,nr,nc){
+    if(nr<0||nr>=ROWS||nc<0||nc>=COLS)return;
+    const t=this.map[nr][nc];
+    if(t===T_WALL_H||t===T_WALL_V||t===T_NOTHING)return;
+    if(this.monsterAt(nr,nc))return;
+    if(nr===this.player.r&&nc===this.player.c)return;
+    mon.r=nr;mon.c=nc;
+  },
+
+  pickup(){
+    const p=this.player;
+    const item=this.itemAt(p.r,p.c);
+    if(!item){speech.say('Nothing here to pick up.');return;}
+    if(item.type==='gold'){
+      p.gold+=item.amount;
+      this.items.splice(this.items.indexOf(item),1);
+      audio.pickup();
+      showMessage(`Picked up ${item.amount} gold.`);
+      speech.say(`Picked up ${item.amount} gold.`);
+    }else{
+      if(p.inventory.length>=23){speech.say('Inventory is full.');return;}
+      this.items.splice(this.items.indexOf(item),1);
+      delete item.r;delete item.c;
+      p.inventory.push(item);
+      audio.pickup();
+      showMessage(`Picked up ${item.name}.`);
+      speech.say(`Picked up ${item.name}.`);
+    }
+  },
+
+  eat(){
+    const p=this.player;
+    const foodIdx=p.inventory.findIndex(i=>i.type==='food');
+    if(foodIdx===-1){speech.say('You have nothing to eat.');return;}
+    p.inventory.splice(foodIdx,1);
+    p.food=1300;p.hungerState='';
+    audio.eat();
+    showMessage('That tasted good!');
+    speech.say('You eat some food. That tasted good!');
+  },
+
+  quaff(){
+    const p=this.player;
+    const potions=p.inventory.filter(i=>i.type==='potion');
+    if(potions.length===0){speech.say('You have no potions.');return;}
+    if(potions.length===1){
+      this.drinkPotion(potions[0]);return;
+    }
+    // List potions for selection
+    let msg='Which potion? ';
+    potions.forEach((pot,i)=>{msg+=`${i+1}: ${pot.name}. `;});
+    speech.say(msg,true);
+    this._pendingAction={type:'quaff',items:potions};
+  },
+
+  drinkPotion(pot){
+    const p=this.player;
+    const idx=p.inventory.indexOf(pot);
+    p.inventory.splice(idx,1);
+    this.identified.potions[pot.which]=true;
+    const eff=pot.which;
+    switch(eff){
+      case 0:p.confused=rnd(8)+4;showMessage('You feel confused.');speech.say('Potion of confusion! You feel confused.');break;
+      case 1:showMessage('Oh wow, everything looks weird.');speech.say('Potion of hallucination!');break;
+      case 2:p.str=Math.max(3,p.str-rnd(3)-1);showMessage('You feel very sick.');speech.say('Poison! Strength decreased.');break;
+      case 3:p.str=Math.min(31,p.str+1);p.maxStr=Math.max(p.maxStr,p.str);showMessage('You feel stronger.');speech.say('Gain strength! Strength increased to '+p.str+'.');break;
+      case 4:p.seeInvis=100;showMessage('You can see invisible monsters.');speech.say('See invisible potion!');break;
+      case 5:{const heal=roll(p.level,4);p.hp=Math.min(p.maxHp,p.hp+heal);showMessage('You feel better.');speech.say(`Healing potion! Recovered ${heal} HP. HP now ${p.hp}.`);break;}
+      case 6:{const mons=this.monsters.map(m=>m.name+' at '+gridLabel(m.r,m.c)).join(', ');showMessage('You sense monsters.');speech.say('Monster detection! '+mons);break;}
+      case 7:{const items=this.items.map(i=>i.name+' at '+gridLabel(i.r,i.c)).join(', ');showMessage('You sense magic.');speech.say('Magic detection! '+items);break;}
+      case 8:p.exp=EXP_TABLE[Math.min(p.level,EXP_TABLE.length-1)];this.killMonster({exp:0,name:'',r:-1,c:-1});showMessage('You feel more experienced.');speech.say('Raise level potion! You gained a level.');break;
+      case 9:{const heal2=roll(p.level,8);p.hp=Math.min(p.maxHp,p.hp+heal2);showMessage('You feel much better.');speech.say(`Extra healing! Recovered ${heal2} HP.`);break;}
+      case 10:p.haste=rnd(4)+4;showMessage('You feel yourself speed up.');speech.say('Haste potion! You move faster.');break;
+      case 11:p.str=p.maxStr;showMessage('You feel warm all over.');speech.say('Restore strength! Strength restored to '+p.str+'.');break;
+      case 12:p.blind=rnd(250)+200;showMessage('A cloak of darkness falls around you.');speech.say('Blindness potion! You cannot see.');break;
+      case 13:p.levitating=rnd(30)+10;showMessage('You start to float.');speech.say('Levitation potion! You are floating.');break;
+    }
+    this.endTurn();
+  },
+
+  readScroll(){
+    const p=this.player;
+    const scrolls=p.inventory.filter(i=>i.type==='scroll');
+    if(scrolls.length===0){speech.say('You have no scrolls.');return;}
+    if(scrolls.length===1){this.useScroll(scrolls[0]);return;}
+    let msg='Which scroll? ';
+    scrolls.forEach((s,i)=>{msg+=`${i+1}: ${s.name}. `;});
+    speech.say(msg,true);
+    this._pendingAction={type:'scroll',items:scrolls};
+  },
+
+  useScroll(scr){
+    const p=this.player;
+    const idx=p.inventory.indexOf(scr);
+    p.inventory.splice(idx,1);
+    this.identified.scrolls[scr.which]=true;
+    switch(scr.which){
+      case 0:showMessage('Your hands glow red.');speech.say('Scroll of monster confusion! Your next hit confuses.');break;
+      case 1:{
+        // Magic mapping - reveal entire level
+        for(let r=0;r<ROWS;r++)for(let c=0;c<COLS;c++)this.explored[r][c]=true;
+        showMessage('A map appears in your mind.');speech.say('Magic mapping! The entire level is revealed.');
+        break;
+      }
+      case 2:showMessage('The monsters around you freeze.');speech.say('Hold monster! Nearby monsters are held.');
+        this.monsters.forEach(m=>{if(dist(m.r,m.c,p.r,p.c)<=3)m.held=true;});break;
+      case 3:showMessage('You fall asleep.');speech.say('Sleep scroll. You fall asleep briefly.');break;
+      case 4:if(p.armor){p.armor.ac=Math.max(1,p.armor.ac-1);p.armor.plus++;p.ac=p.armor.ac;showMessage('Your armor glows.');speech.say(`Enchant armor! Armor class improved to ${p.ac}.`);}break;
+      case 5:showMessage('This is an identify scroll.');speech.say('Identify scroll! Choose an item to identify.');
+        if(p.inventory.length>0){const item=p.inventory[rnd(p.inventory.length)];if(item.realName)item.name=item.realName;speech.say('Identified: '+item.name);}break;
+      case 6:showMessage('You hear maniacal laughter.');speech.say('Scare monster scroll.');break;
+      case 7:this.teleportPlayer();showMessage('You feel disoriented.');speech.say('Teleportation scroll!');break;
+      case 8:if(p.weapon){p.weapon.hplus++;showMessage('Your weapon glows.');speech.say(`Enchant weapon! ${p.weapon.name} is now +${p.weapon.hplus},+${p.weapon.dplus}.`);}break;
+      case 9:this.placeMonster();showMessage('A monster appears!');speech.say('Create monster scroll! A monster appears!');break;
+      case 10:if(p.armor)p.armor.cursed=false;if(p.weapon)p.weapon.cursed=false;showMessage('You feel a warm glow.');speech.say('Remove curse! Equipment uncursed.');break;
+      case 11:this.monsters.forEach(m=>{m.asleep=false;});showMessage('You hear a high-pitched humming.');speech.say('Aggravate monsters! All monsters are awake and angry.');break;
+      case 12:if(p.armor){p.armor.cursed=false;showMessage('Your armor is protected.');speech.say('Protect armor scroll!');}break;
+      default:showMessage('The scroll crumbles to dust.');speech.say('The scroll crumbles to dust.');break;
+    }
+    this.endTurn();
+  },
+
+  wieldWeapon(){
+    const p=this.player;
+    const weapons=p.inventory.filter(i=>i.type==='weapon');
+    if(weapons.length===0){speech.say('You have no weapons.');return;}
+    if(weapons.length===1){
+      if(p.weapon===weapons[0]){speech.say('Already wielding '+weapons[0].name+'.');return;}
+      p.weapon=weapons[0];
+      showMessage('You are now wielding a '+weapons[0].name+'.');
+      speech.say('Now wielding '+weapons[0].name+'.');
+      return;
+    }
+    let msg='Wield which weapon? ';
+    weapons.forEach((w,i)=>{msg+=`${i+1}: ${w.name}${w===p.weapon?' (current)':''}. `;});
+    speech.say(msg,true);
+    this._pendingAction={type:'wield',items:weapons};
+  },
+
+  wearArmor(){
+    const p=this.player;
+    if(p.armor){speech.say('You are already wearing '+p.armor.name+'. Take it off first with capital T.');return;}
+    const armors=p.inventory.filter(i=>i.type==='armor');
+    if(armors.length===0){speech.say('You have no armor.');return;}
+    if(armors.length===1){
+      p.armor=armors[0];p.ac=armors[0].ac;
+      showMessage('You are now wearing '+armors[0].name+'.');
+      speech.say('Now wearing '+armors[0].name+'. Armor class '+p.ac+'.');
+      return;
+    }
+    let msg='Wear which armor? ';
+    armors.forEach((a,i)=>{msg+=`${i+1}: ${a.name}. `;});
+    speech.say(msg,true);
+    this._pendingAction={type:'wear',items:armors};
+  },
+
+  takeOffArmor(){
+    const p=this.player;
+    if(!p.armor){speech.say('You are not wearing armor.');return;}
+    if(p.armor.cursed){speech.say('You cannot remove the cursed '+p.armor.name+'!');return;}
+    showMessage('You take off your '+p.armor.name+'.');
+    speech.say('Removed '+p.armor.name+'.');
+    p.armor=null;p.ac=10;
+  },
+
+  dropItem(){
+    const p=this.player;
+    if(p.inventory.length===0){speech.say('You have nothing to drop.');return;}
+    let msg='Drop which item? ';
+    p.inventory.forEach((item,i)=>{msg+=`${i+1}: ${item.name}. `;});
+    speech.say(msg,true);
+    this._pendingAction={type:'drop',items:p.inventory};
+  },
+
+  doDrop(item){
+    const p=this.player;
+    if(item===p.weapon){p.weapon=null;}
+    if(item===p.armor){p.armor=null;p.ac=10;}
+    const idx=p.inventory.indexOf(item);
+    p.inventory.splice(idx,1);
+    item.r=p.r;item.c=p.c;
+    this.items.push(item);
+    showMessage('Dropped '+item.name+'.');
+    speech.say('Dropped '+item.name+'.');
+  },
+
+  search(){
+    const p=this.player;
+    let found=false;
+    for(let dr=-1;dr<=1;dr++){
+      for(let dc=-1;dc<=1;dc++){
+        if(dr===0&&dc===0)continue;
+        const nr=p.r+dr,nc=p.c+dc;
+        if(nr<0||nr>=ROWS||nc<0||nc>=COLS)continue;
+        // Reveal traps
+        if(this.map[nr][nc]===T_TRAP&&!this.explored[nr][nc]){
+          this.explored[nr][nc]=true;
+          found=true;
+          speech.say('Found a trap at '+gridLabel(nr,nc)+'!');
+        }
+      }
+    }
+    if(!found)speech.say('You search but find nothing.');
+    this.endTurn();
+  },
+
+  goDownStairs(){
+    const p=this.player;
+    if(this.map[p.r][p.c]!==T_DN){speech.say('You are not on stairs going down.');return;}
+    audio.stairs();
+    this.newLevel(this.depth+1);
+  },
+
+  goUpStairs(){
+    const p=this.player;
+    if(this.map[p.r][p.c]!==T_UP){speech.say('You are not on stairs going up.');return;}
+    if(this.hasAmulet){
+      if(this.depth===1){
+        this.gameOver=true;
+        const msg=`Congratulations! You escaped the dungeon with the Amulet of Yendor and ${p.gold} gold! You win!`;
+        showMessage(msg);speech.say(msg,true);
+        return;
+      }
+      audio.stairs();
+      this.newLevel(this.depth-1);
+    }else{
+      speech.say('You need the Amulet of Yendor before you can go up.');
+    }
+  },
+
+  rest(){
+    speech.say('Resting.');
+    this.endTurn();
+  },
+
+  showInventory(){
+    const p=this.player;
+    if(p.inventory.length===0){speech.say('Your pack is empty.');return;}
+    let msg='Inventory: ';
+    p.inventory.forEach((item,i)=>{
+      const letter=String.fromCharCode(97+i);
+      let desc=item.name;
+      if(item===p.weapon)desc+=' (wielded)';
+      if(item===p.armor)desc+=' (worn)';
+      msg+=`${letter}) ${desc}. `;
+    });
+    speech.say(msg,true);
+    showMessage('Inventory: '+p.inventory.length+' items');
+    // Show in overlay
+    let html='<h2>Inventory</h2><table>';
+    p.inventory.forEach((item,i)=>{
+      const letter=String.fromCharCode(97+i);
+      let desc=item.name;
+      if(item===p.weapon)desc+=' (wielded)';
+      if(item===p.armor)desc+=' (worn)';
+      html+=`<tr><td>${letter})</td><td>${desc}</td></tr>`;
+    });
+    html+='</table><p class="close-hint">Press Escape or i to close</p>';
+    this.showOverlay(html);
+  },
+
+  showHelp(){
+    const html=`<h2>Rogue: Accessible Edition - Controls</h2>
+<table>
+<tr><th>Key</th><th>Action</th></tr>
+<tr><td>h / Left</td><td>Move west</td></tr>
+<tr><td>j / Down</td><td>Move south</td></tr>
+<tr><td>k / Up</td><td>Move north</td></tr>
+<tr><td>l / Right</td><td>Move east</td></tr>
+<tr><td>y</td><td>Move northwest</td></tr>
+<tr><td>u</td><td>Move northeast</td></tr>
+<tr><td>b</td><td>Move southwest</td></tr>
+<tr><td>n</td><td>Move southeast</td></tr>
+<tr><td>H J K L Y U B N</td><td>Run in direction</td></tr>
+<tr><td>.</td><td>Rest one turn</td></tr>
+<tr><td>s</td><td>Search for traps/doors</td></tr>
+<tr><td>&gt;</td><td>Go down stairs</td></tr>
+<tr><td>&lt;</td><td>Go up stairs</td></tr>
+<tr><td>, or g</td><td>Pick up item</td></tr>
+<tr><td>i</td><td>Show inventory</td></tr>
+<tr><td>e</td><td>Eat food</td></tr>
+<tr><td>q</td><td>Quaff potion</td></tr>
+<tr><td>r</td><td>Read scroll</td></tr>
+<tr><td>w</td><td>Wield weapon</td></tr>
+<tr><td>W</td><td>Wear armor</td></tr>
+<tr><td>T</td><td>Take off armor</td></tr>
+<tr><td>d</td><td>Drop item</td></tr>
+<tr><td>x</td><td>Describe surroundings</td></tr>
+<tr><td>@</td><td>Read status</td></tr>
+<tr><td>Tab</td><td>Read full status</td></tr>
+<tr><td>Escape</td><td>Pause/resume speech</td></tr>
+<tr><td>F2</td><td>Settings</td></tr>
+<tr><td>?</td><td>This help</td></tr>
+</table>
+<p>Grid positions use battleship notation: rows A-V, columns 1-80. A1 is top-left.</p>
+<p class="close-hint">Press Escape or ? to close</p>`;
+    this.showOverlay(html);
+    speech.say('Help screen open. Press escape to close.',true);
+  },
+
+  readStatus(){
+    const p=this.player;
+    const rank=RANKS[Math.min(p.level-1,RANKS.length-1)];
+    const msg=`${rank}. Level ${p.level}. HP ${p.hp} of ${p.maxHp}. Strength ${p.str}. AC ${p.ac}. Gold ${p.gold}. Dungeon level ${this.depth}. Experience ${p.exp}. Position ${gridLabel(p.r,p.c)}. ${p.hungerState||'Not hungry'}.`;
+    speech.say(msg,true);
+  },
+
+  showOverlay(html){
+    this.overlayOpen=true;
+    document.getElementById('overlay-content').innerHTML=html;
+    document.getElementById('overlay').classList.add('active');
+  },
+
+  closeOverlay(){
+    this.overlayOpen=false;
+    document.getElementById('overlay').classList.remove('active');
+  },
+
+  handlePendingAction(num){
+    if(!this._pendingAction)return false;
+    const pa=this._pendingAction;
+    const idx=num-1;
+    if(idx<0||idx>=pa.items.length){speech.say('Invalid choice.');return true;}
+    const item=pa.items[idx];
+    this._pendingAction=null;
+    switch(pa.type){
+      case 'quaff':this.drinkPotion(item);break;
+      case 'scroll':this.useScroll(item);break;
+      case 'wield':this.player.weapon=item;showMessage('Now wielding '+item.name+'.');speech.say('Now wielding '+item.name+'.');break;
+      case 'wear':this.player.armor=item;this.player.ac=item.ac;showMessage('Now wearing '+item.name+'.');speech.say('Now wearing '+item.name+'. AC '+item.ac+'.');break;
+      case 'drop':this.doDrop(item);break;
+    }
+    return true;
+  },
+
+  restart(){
+    this.gameOver=false;this.hasAmulet=false;this.turn=0;
+    this.player=null;this.monsters=[];this.items=[];
+    this.messages=[];
+    this.potionColors=shuffle([...POTION_NAMES]);
+    this.scrollLabels=[];
+    for(let i=0;i<SCROLL_TYPES.length;i++){
+      this.scrollLabels.push(shuffle([...SCROLL_SYLLABLES]).slice(0,rnd(2)+2).join(' '));
+    }
+    this.newLevel(1);
+    render();
+  }
+};
+
+function showMessage(msg){
+  game.messages.push(msg);
+  document.getElementById('message-area').textContent=msg;
+}
+
+// ============== RENDERING ==============
+function render(){
+  const mapEl=document.getElementById('map-display');
+  const p=game.player;
+  let html='';
+  for(let r=0;r<ROWS;r++){
+    for(let c=0;c<COLS;c++){
+      if(r===p.r&&c===p.c){html+='<span class="player">@</span>';continue;}
+      const mon=game.monsterAt(r,c);
+      if(mon&&game.explored[r][c]&&!(mon.flags&F_INVIS&&!p.seeInvis)){html+='<span class="monster">'+mon.symbol+'</span>';continue;}
+      const item=game.itemAt(r,c);
+      if(item&&game.explored[r][c]){
+        const cls=item.type==='gold'?'gold':'item';
+        html+='<span class="'+cls+'">'+item.symbol+'</span>';continue;
+      }
+      if(!game.explored[r][c]){html+=' ';continue;}
+      const t=game.map[r][c];
+      if(t===T_WALL_H||t===T_WALL_V)html+='<span class="wall">'+t+'</span>';
+      else if(t===T_DN||t===T_UP)html+='<span class="stairs">'+t+'</span>';
+      else if(t===',')html+='<span class="item">,</span>';
+      else html+=t;
+    }
+    if(r<ROWS-1)html+='\n';
+  }
+  mapEl.innerHTML=html;
+
+  // Status bar
+  const rank=RANKS[Math.min(p.level-1,RANKS.length-1)];
+  const hunger=p.hungerState?(' '+p.hungerState.charAt(0).toUpperCase()+p.hungerState.slice(1)):'';
+  document.getElementById('status-bar').textContent=
+    `Level:${game.depth} HP:${p.hp}(${p.maxHp}) Str:${p.str}(${p.maxStr}) Gold:${p.gold} AC:${p.ac} Exp:${p.level}/${p.exp}${hunger} Pos:${gridLabel(p.r,p.c)}`;
+}
+
+// ============== INPUT HANDLING ==============
+const MOVE_KEYS={
+  'h':[0,-1],'ArrowLeft':[0,-1],
+  'j':[1,0],'ArrowDown':[1,0],
+  'k':[-1,0],'ArrowUp':[-1,0],
+  'l':[0,1],'ArrowRight':[0,1],
+  'y':[-1,-1],'u':[-1,1],'b':[1,-1],'n':[1,1]
+};
+const RUN_KEYS={
+  'H':[0,-1],'J':[1,0],'K':[-1,0],'L':[0,1],
+  'Y':[-1,-1],'U':[-1,1],'B':[1,-1],'N':[1,1]
+};
+
+document.addEventListener('keydown',function(e){
+  // Resume audio context on first interaction
+  audio.resume();
+
+  // ESC: pause/resume speech or close overlay/settings
+  if(e.key==='Escape'){
+    e.preventDefault();
+    if(game.settingsOpen){
+      game.settingsOpen=false;
+      document.getElementById('settings-panel').classList.remove('active');
+      return;
+    }
+    if(game.overlayOpen){game.closeOverlay();return;}
+    speech.togglePause();
+    return;
+  }
+
+  // F2: toggle settings
+  if(e.key==='F2'){
+    e.preventDefault();
+    game.settingsOpen=!game.settingsOpen;
+    document.getElementById('settings-panel').classList.toggle('active');
+    if(game.settingsOpen)speech.say('Settings panel open.',true);
+    return;
+  }
+
+  // Don't process game keys if overlay/settings open
+  if(game.settingsOpen)return;
+  if(game.overlayOpen){
+    if(e.key==='i'||e.key==='?')game.closeOverlay();
+    return;
+  }
+
+  // Pending action (number selection)
+  if(game._pendingAction){
+    const num=parseInt(e.key);
+    if(num>=1&&num<=9){
+      e.preventDefault();
+      game.handlePendingAction(num);
+      return;
+    }
+    if(e.key==='Escape'||e.key===' '){
+      game._pendingAction=null;
+      speech.say('Cancelled.');
+      return;
+    }
+    return;
+  }
+
+  // Game over: space to restart
+  if(game.gameOver){
+    if(e.key===' '){game.restart();}
+    return;
+  }
+
+  const key=e.key;
+
+  // Movement
+  if(MOVE_KEYS[key]){
+    e.preventDefault();
+    game.running=false;
+    game.movePlayer(MOVE_KEYS[key][0],MOVE_KEYS[key][1]);
+    return;
+  }
+
+  // Running
+  if(RUN_KEYS[key]){
+    e.preventDefault();
+    game.running=true;
+    game.movePlayer(RUN_KEYS[key][0],RUN_KEYS[key][1]);
+    return;
+  }
+
+  // Commands
+  switch(key){
+    case '.':e.preventDefault();game.rest();break;
+    case 's':e.preventDefault();game.search();break;
+    case '>':e.preventDefault();game.goDownStairs();break;
+    case '<':e.preventDefault();game.goUpStairs();break;
+    case ',':case 'g':e.preventDefault();game.pickup();break;
+    case 'i':e.preventDefault();game.showInventory();break;
+    case 'e':e.preventDefault();game.eat();break;
+    case 'q':e.preventDefault();game.quaff();break;
+    case 'r':e.preventDefault();game.readScroll();break;
+    case 'w':e.preventDefault();game.wieldWeapon();break;
+    case 'W':e.preventDefault();game.wearArmor();break;
+    case 'T':e.preventDefault();game.takeOffArmor();break;
+    case 'd':e.preventDefault();game.dropItem();break;
+    case 'x':e.preventDefault();game.describeSurroundings();break;
+    case '@':e.preventDefault();game.readStatus();break;
+    case 'Tab':e.preventDefault();game.readStatus();break;
+    case '?':e.preventDefault();game.showHelp();break;
+  }
+});
+
+// Settings close button
+document.getElementById('settings-close').addEventListener('click',()=>{
+  game.settingsOpen=false;
+  document.getElementById('settings-panel').classList.remove('active');
+});
+
+// ============== INITIALIZATION ==============
+window.addEventListener('load',()=>{
+  speech.init();
+  audio.init();
+  game.init();
+  render();
+  speech.say('Rogue: The Dungeons of Doom. Accessible Edition. Press question mark for help. Use h j k l to move. You are the at sign.',true);
+});
+
+</script>
+</body>
+</html>
