@@ -279,6 +279,12 @@ class AccessibleInfiniteCraft {
             case 'oldest':
                 sorted.sort((a, b) => a.timestamp - b.timestamp);
                 break;
+            case 'longest':
+                sorted.sort((a, b) => b.name.length - a.name.length);
+                break;
+            case 'shortest':
+                sorted.sort((a, b) => a.name.length - b.name.length);
+                break;
         }
         
         return sorted;
@@ -334,10 +340,18 @@ class AccessibleInfiniteCraft {
             // Create button content
             let buttonContent = '';
             if (this.showNumbers) {
-                // Find the element's stable number (based on chronological order)
-                const chronologicalIndex = this.elementsData.findIndex(el => el.name === elementData.name);
-                const elementNumber = chronologicalIndex + 1;
-                buttonContent += `<span class="element-number">#${elementNumber}- </span>`;
+                if (this.sortOrder === 'longest' || this.sortOrder === 'shortest') {
+                    // In length-based sort orders the leading number is the
+                    // element's character count, so the sort criterion is
+                    // visible (and announced) for each element.
+                    buttonContent += `<span class="element-number">${elementData.name.length} chars- </span>`;
+                } else {
+                    // Otherwise it's the element's stable id (chronological
+                    // discovery order).
+                    const chronologicalIndex = this.elementsData.findIndex(el => el.name === elementData.name);
+                    const elementNumber = chronologicalIndex + 1;
+                    buttonContent += `<span class="element-number">#${elementNumber}- </span>`;
+                }
             }
             
             buttonContent += this.escapeHtml(elementData.name);
