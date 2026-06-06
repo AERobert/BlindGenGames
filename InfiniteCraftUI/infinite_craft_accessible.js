@@ -6,6 +6,7 @@ class AccessibleInfiniteCraft {
         this.showNumbers = false;
         this.sortOrder = 'alphabetical';
         this.currentFilter = 'all';
+        this.wordCountFilter = 0;
         this.enableAnnouncements = true;
         
         // Combination statistics
@@ -39,6 +40,7 @@ class AccessibleInfiniteCraft {
                 this.sortOrder = data.sortOrder || 'alphabetical';
                 this.showNumbers = data.showNumbers || false;
                 this.currentFilter = data.currentFilter || 'all';
+                this.wordCountFilter = data.wordCountFilter || 0;
                 this.enableAnnouncements = data.enableAnnouncements !== false;
                 this.combinationStats = data.combinationStats || {
                     total: 0,
@@ -83,6 +85,7 @@ class AccessibleInfiniteCraft {
                 sortOrder: this.sortOrder,
                 showNumbers: this.showNumbers,
                 currentFilter: this.currentFilter,
+                wordCountFilter: this.wordCountFilter,
                 enableAnnouncements: this.enableAnnouncements,
                 combinationStats: this.combinationStats,
                 sectionStates: this.sectionStates
@@ -101,6 +104,7 @@ class AccessibleInfiniteCraft {
                 sortOrder: this.sortOrder,
                 showNumbers: this.showNumbers,
                 currentFilter: this.currentFilter,
+                wordCountFilter: this.wordCountFilter,
                 enableAnnouncements: this.enableAnnouncements,
                 combinationStats: this.combinationStats,
                 sectionStates: this.sectionStates,
@@ -168,6 +172,8 @@ class AccessibleInfiniteCraft {
         document.getElementById('sort-select').value = this.sortOrder;
         document.getElementById('show-numbers').checked = this.showNumbers;
         document.getElementById('filter-select').value = this.currentFilter;
+        document.getElementById('word-count-input').value = this.wordCountFilter;
+        this.updateFilterControls();
         document.getElementById('enable-announcements').checked = this.enableAnnouncements;
         
         // Set section states
@@ -213,6 +219,13 @@ class AccessibleInfiniteCraft {
         this.setSectionState(sectionId, !this.sectionStates[sectionId]);
     }
 
+    // Count the words in an element name (whitespace-separated tokens), used
+    // by the "Word Count" filter.
+    countWords(name) {
+        const trimmed = name.trim();
+        return trimmed === '' ? 0 : trimmed.split(/\s+/).length;
+    }
+
     getFilteredElements() {
         let filtered = [...this.elementsData];
         
@@ -225,6 +238,13 @@ class AccessibleInfiniteCraft {
                 break;
             case 'non-number-discoveries':
                 filtered = filtered.filter(el => el.isDiscovery && !/\d/.test(el.name));
+                break;
+            case 'word-count':
+                // Show only elements whose name has exactly `wordCountFilter`
+                // words. A value below 1 disables the filter (shows everything).
+                if (this.wordCountFilter >= 1) {
+                    filtered = filtered.filter(el => this.countWords(el.name) === this.wordCountFilter);
+                }
                 break;
             case 'all':
             default:
@@ -595,8 +615,25 @@ class AccessibleInfiniteCraft {
 
     changeFilter(newFilter) {
         this.currentFilter = newFilter || document.getElementById('filter-select').value;
+        this.updateFilterControls();
         this.saveGameData();
         this.renderElements();
+    }
+
+    // Read the desired word count from the number field. Values below 1 mean
+    // "no word-count filtering" (show everything).
+    changeWordCount() {
+        const value = parseInt(document.getElementById('word-count-input').value, 10);
+        this.wordCountFilter = Number.isNaN(value) ? 0 : value;
+        this.saveGameData();
+        this.renderElements();
+    }
+
+    // Show the word-count number field only while the "Word Count" filter is
+    // active; hide it for every other filter.
+    updateFilterControls() {
+        const wordCountControl = document.getElementById('word-count-control');
+        wordCountControl.style.display = this.currentFilter === 'word-count' ? '' : 'none';
     }
 
     toggleAnnouncements() {
@@ -628,6 +665,12 @@ function toggleNumbering() {
 function changeFilter() {
     if (window.game) {
         window.game.changeFilter();
+    }
+}
+
+function changeWordCount() {
+    if (window.game) {
+        window.game.changeWordCount();
     }
 }
 

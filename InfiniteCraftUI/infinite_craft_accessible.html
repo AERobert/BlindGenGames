@@ -79,7 +79,12 @@
                             <option value="discoveries">Discoveries</option>
                             <option value="non-discoveries">Non-Discoveries</option>
                             <option value="non-number-discoveries">Non-Number Discoveries</option>
+                            <option value="word-count">Word Count</option>
                         </select>
+                    </div>
+                    <div class="control-section" id="word-count-control" style="display: none;">
+                        <label for="word-count-input">Words to show:</label>
+                        <input type="number" id="word-count-input" class="number-input" min="0" step="1" value="0" onchange="changeWordCount()">
                     </div>
                     <div class="control-section">
                         <label for="sort-select">Sort by:</label>
