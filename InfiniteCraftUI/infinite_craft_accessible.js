@@ -231,7 +231,18 @@ class AccessibleInfiniteCraft {
                 // No filtering
                 break;
         }
-        
+
+        // Always keep the locked element in view, even when the active filter
+        // would otherwise hide it. A locked element that gets filtered out
+        // becomes impossible to see or unlock by clicking, which is how the
+        // lock used to "disappear" when switching categories.
+        if (this.lockedElement && !filtered.some(el => el.name === this.lockedElement)) {
+            const lockedData = this.elementsData.find(el => el.name === this.lockedElement);
+            if (lockedData) {
+                filtered.push(lockedData);
+            }
+        }
+
         return filtered;
     }
 
@@ -350,22 +361,28 @@ class AccessibleInfiniteCraft {
     }
 
     toggleLock() {
+        // If an element is already locked, the lock control must always be
+        // able to unlock it, regardless of the current selection or filter.
+        // Unlocking previously required the locked element to also be the
+        // *selected* element, but the selection is never set while locked
+        // (and Escape clears it), so the lock could get permanently stuck.
+        if (this.lockedElement) {
+            this.announce(`${this.lockedElement} unlocked`);
+            this.lockedElement = null;
+            this.clearSelection();
+            this.updateLockButton();
+            this.renderElements();
+            return;
+        }
+
+        // Nothing locked yet: lock whatever element is currently selected.
         if (!this.selectedElement) {
             this.announce('No element selected to lock');
             return;
         }
 
-        if (this.lockedElement === this.selectedElement) {
-            // Unlock
-            this.announce(`${this.selectedElement} unlocked`);
-            this.lockedElement = null;
-            clearSelection();
-        } else {
-            // Lock
-            this.lockedElement = this.selectedElement;
-            this.announce(`${this.selectedElement} locked as first element`);
-        }
-
+        this.lockedElement = this.selectedElement;
+        this.announce(`${this.selectedElement} locked as first element`);
         this.updateLockButton();
         this.renderElements();
     }
