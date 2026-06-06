@@ -276,6 +276,15 @@ class AccessibleInfiniteCraft {
         }
     }
 
+    // Escape characters that are significant in HTML so element names that
+    // contain them (e.g. "<3", "A>B", "Rock & Roll") render literally instead
+    // of being parsed as markup. Used when building button labels via innerHTML.
+    escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
     renderElements() {
         const grid = document.getElementById('elements-grid');
         grid.innerHTML = '';
@@ -311,7 +320,7 @@ class AccessibleInfiniteCraft {
                 buttonContent += `<span class="element-number">#${elementNumber}- </span>`;
             }
             
-            buttonContent += elementData.name;
+            buttonContent += this.escapeHtml(elementData.name);
             
             if (elementData.isDiscovery) {
                 buttonContent += `<span class="element-discovery"> (Discovery)</span>`;
