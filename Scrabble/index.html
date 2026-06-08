@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Accessible Scrabble</title>
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<!--
+  index.html is the DOM SOURCE OF TRUTH (see ARCHITECTURE.md §7.0/§7.7).
+  Element IDs and roles here are the contract; JS modules bind to these exact IDs.
+  Ownership:
+    #sc-live / #sc-live-assertive      -> SC.Speech (polite / assertive output)
+    #setup-screen + its controls       -> SC.Game (setup) + SC.UI (settings widgets)
+    #board / #board-grid               -> SC.Board (builds the 15x15 grid inside)
+    #rack                              -> SC.UI (rack tiles)
+    #info-panel + #scores/#bag-count   -> SC.UI (status)
+    #move-log                          -> SC.UI / SC.State (play history)
+    overlays (#*-overlay)              -> SC.UI (dialogs); bodies marked "JS fills" are populated at runtime
+  Game keys are handled globally by SC.Game.handleKey (see INTERFACE_DESIGN.md §5).
+-->
+<body>
+  <!-- Skip links (Risk pattern) -->
+  <a href="#board" class="skip-link">Skip to board</a>
+  <a href="#rack" class="skip-link">Skip to rack</a>
+  <a href="#info-panel" class="skip-link">Skip to game info</a>
+
+  <!-- Screen-reader live regions. Polite = routine; assertive = interrupts. -->
+  <div id="sc-live" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
+  <div id="sc-live-assertive" class="sr-only" role="alert" aria-live="assertive" aria-atomic="true"></div>
+
+  <div class="container">
+
+    <!-- ============================ SETUP SCREEN ============================ -->
+    <section id="setup-screen" class="screen">
+      <h1>Accessible Scrabble</h1>
+      <p>A fully keyboard- and screen-reader-playable Scrabble. Press the Help
+         button or <kbd>?</kbd> at any time for the controls.</p>
+
+      <div class="setup-section">
+        <label for="player-name">Your name:</label>
+        <input type="text" id="player-name" value="You" maxlength="20">
+      </div>
+
+      <div class="setup-section">
+        <label for="num-opponents">Computer opponents:</label>
+        <select id="num-opponents">
+          <option value="1" selected>1</option>
+          <option value="2">2</option>
+          <option value="3">3</option>
+        </select>
+
+        <label for="ai-difficulty">Difficulty:</label>
+        <select id="ai-difficulty">
+          <option value="easy">Easy</option>
+          <option value="medium" selected>Medium</option>
+          <option value="hard">Hard</option>
+          <option value="expert">Expert</option>
+        </select>
+
+        <label for="game-mode">Game mode:</label>
+        <select id="game-mode">
+          <option value="vsComputer" selected>Versus Computer</option>
+          <option value="passAndPlay">Pass and Play (hotseat)</option>
+          <option value="solo">Solo high-score</option>
+        </select>
+      </div>
+
+      <div class="setup-section">
+        <h2>Speech</h2>
+        <label for="voice-select">Voice:</label>
+        <select id="voice-select"></select>
+        <label for="speech-rate">Speech rate: <span id="rate-value">2.5</span></label>
+        <input type="range" id="speech-rate" min="0.5" max="6" step="0.1" value="2.5">
+        <p id="speech-warning" class="warning hidden">Speech synthesis is unavailable in this browser.</p>
+      </div>
+
+      <div class="setup-section">
+        <h2>Other</h2>
+        <label class="checkbox-label"><input type="checkbox" id="sound-effects" checked> Sound effects</label>
+        <label class="checkbox-label"><input type="checkbox" id="spatial-audio" checked> Spatial audio (pan by column, pitch by row)</label>
+        <label class="checkbox-label"><input type="checkbox" id="hint-enabled"> Enable word-finder / hint key (F)</label>
+      </div>
+
+      <div class="button-row">
+        <button id="start-btn">Start Game</button>
+        <button id="resume-btn" class="btn-secondary hidden">Resume Saved Game</button>
+        <button id="help-btn">Help (?)</button>
+      </div>
+      <p id="loading-status" class="loading-status" aria-live="polite"></p>
+    </section>
+
+    <!-- ============================ GAME SCREEN ============================ -->
+    <section id="game-screen" class="screen hidden">
+      <header class="game-header" role="banner">
+        <h1 class="game-title">Scrabble</h1>
+        <div class="header-controls" role="toolbar" aria-label="Game controls">
+          <span id="turn-indicator" aria-live="off">Your turn</span>
+          <span id="timer" aria-live="off" aria-label="Game timer">0:00</span>
+          <button class="btn-small" id="toggle-voice-btn" aria-pressed="true" title="Web Speech text-to-speech">Voice: On</button>
+          <button class="btn-small" id="toggle-aria-btn" aria-pressed="true" title="Screen-reader ARIA announcements">ARIA: On</button>
+          <button class="btn-small" id="toggle-sound-btn" aria-pressed="true">Sound: On</button>
+          <button class="btn-small" id="settings-btn">Settings (/)</button>
+          <button class="btn-small" id="help-btn-game">Help (?)</button>
+        </div>
+      </header>
+
+      <main class="game-main">
+        <!-- The board. SC.Board builds the 15x15 grid inside #board-grid. -->
+        <div id="board" role="application" aria-label="Scrabble board, 15 by 15. Rows A to O, columns 1 to 15. Center is H8." tabindex="0">
+          <div id="board-grid" role="grid" aria-label="Scrabble board grid"></div>
+        </div>
+
+        <aside class="side-panel">
+          <!-- The rack. SC.UI fills with up to 7 tiles. -->
+          <h2 class="panel-heading">Your Rack</h2>
+          <ul id="rack" role="list" aria-label="Your rack"></ul>
+
+          <!-- Status / info. SC.UI keeps these current; the S key focuses here. -->
+          <div id="info-panel" role="status" tabindex="-1" aria-label="Game status">
+            <div id="scores">Scores: —</div>
+            <div id="bag-count">Tiles in bag: —</div>
+            <div id="turn-number">Turn 1</div>
+          </div>
+
+          <h2 class="panel-heading">Move Log</h2>
+          <ul id="move-log" aria-label="Move history" class="move-log"></ul>
+        </aside>
+      </main>
+    </section>
+  </div>
+
+  <!-- ============================== OVERLAYS ============================== -->
+  <!-- All overlays are role=dialog, modal, focus-trapped by SC.UI; Esc closes. -->
+
+  <div id="help-overlay" class="overlay hidden">
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="help-title">
+      <h2 id="help-title">Keyboard Controls</h2>
+      <div id="help-body"><!-- JS fills with the keyboard reference --></div>
+      <div class="dialog-buttons"><button id="help-close">Close (Esc)</button></div>
+    </div>
+  </div>
+
+  <div id="settings-overlay" class="overlay hidden">
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+      <h2 id="settings-title">Settings</h2>
+      <div id="settings-body"><!-- JS fills with all settings controls --></div>
+      <div class="dialog-buttons"><button id="settings-close">Close (Esc)</button></div>
+    </div>
+  </div>
+
+  <!-- Composer: type a whole word. #composer-preview is a live region for the
+       running parse + score. SC.UI handles input; Tab toggles direction; Enter
+       -> preview; Esc cancels. -->
+  <div id="composer-overlay" class="overlay hidden">
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="composer-title">
+      <h2 id="composer-title">Compose a Word</h2>
+      <p id="composer-context"></p>
+      <label for="composer-input">Word (use parentheses for a blank, e.g. C(A)T):</label>
+      <input type="text" id="composer-input" autocomplete="off" autocapitalize="characters"
+             spellcheck="false" aria-describedby="composer-preview">
+      <p>Direction: <span id="composer-direction">across</span> — press Tab to toggle.</p>
+      <div id="composer-preview" role="status" aria-live="polite" aria-atomic="true"></div>
+      <div class="dialog-buttons">
+        <button id="composer-next">Preview (Enter)</button>
+        <button id="composer-cancel" class="btn-secondary">Cancel (Esc)</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Score preview / confirm. -->
+  <div id="preview-overlay" class="overlay hidden">
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="preview-title">
+      <h2 id="preview-title">Confirm Play</h2>
+      <div id="preview-text" role="status" aria-live="polite" aria-atomic="true"></div>
+      <div class="dialog-buttons">
+        <button id="preview-commit">Commit (Enter)</button>
+        <button id="preview-blank" class="btn-secondary">Toggle blank (B)</button>
+        <button id="preview-cancel" class="btn-secondary">Back (Esc)</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Exchange tiles. SC.UI fills #exchange-body with togglable tiles (1-7). -->
+  <div id="exchange-overlay" class="overlay hidden">
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="exchange-title">
+      <h2 id="exchange-title">Exchange Tiles</h2>
+      <p>Press 1–7 (or click) to mark tiles to exchange.</p>
+      <div id="exchange-body"></div>
+      <div class="dialog-buttons">
+        <button id="exchange-confirm">Confirm (Enter)</button>
+        <button id="exchange-cancel" class="btn-secondary">Cancel (Esc)</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Jump to coordinate (G key). -->
+  <div id="jump-overlay" class="overlay hidden">
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="jump-title">
+      <h2 id="jump-title">Go to Square</h2>
+      <label for="jump-input">Coordinate (e.g. H8) or "center":</label>
+      <input type="text" id="jump-input" autocomplete="off" spellcheck="false">
+      <div class="dialog-buttons">
+        <button id="jump-ok">Go (Enter)</button>
+        <button id="jump-cancel" class="btn-secondary">Cancel (Esc)</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Game over. -->
+  <div id="gameover-overlay" class="overlay hidden">
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="gameover-title">
+      <h2 id="gameover-title">Game Over</h2>
+      <div id="gameover-text" role="status" aria-live="polite"></div>
+      <div class="dialog-buttons"><button id="gameover-newgame">New Game (N)</button></div>
+    </div>
+  </div>
+
+  <!-- ===== Scripts: load order matters only in that game.js inits last. ===== -->
+  <script src="js/dictionary-data.js"></script>
+  <script src="js/data.js"></script>
+  <script src="js/dawg.js"></script>
+  <script src="js/dictionary.js"></script>
+  <script src="js/state.js"></script>
+  <script src="js/rules.js"></script>
+  <script src="js/ai.js"></script>
+  <script src="js/speech.js"></script>
+  <script src="js/sounds.js"></script>
+  <script src="js/board.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/game.js"></script>
+</body>
+</html>

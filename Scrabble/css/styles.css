@@ -1,0 +1,713 @@
+/* =========================================================================
+   Accessible Scrabble — Stylesheet
+   -------------------------------------------------------------------------
+   ROLE OF THIS FILE
+   This game is screen-reader-first and keyboard-only: every piece of
+   information is delivered via SC.Speech (TTS) and ARIA live regions. The
+   visuals here are a SIGHTED-ASSIST COURTESY only — they must never be the
+   SOLE signal for anything (premium type, cursor, tile state are all spoken
+   and labelled in the DOM too). Accordingly this file optimises for:
+     - high contrast (WCAG AA: >=4.5:1 text, >=3:1 non-text/UI),
+     - large, readable text,
+     - an unmistakable focus / cursor indicator on every interactive thing,
+     - calm motion that fully respects prefers-reduced-motion.
+
+   It follows the dark theme of the sibling Risk game for visual consistency,
+   and binds to the EXACT ids/roles/classes declared in index.html (the DOM
+   source of truth) plus the class contract the board.js / ui.js renderers
+   will emit (cursor, premium codes TW/DW/TL/DL, center, placed vs pending).
+
+   No JS public API is exposed: this is a pure CSS file (the SC.X namespace
+   requirement in the brief applies to JS modules only).
+
+   ORGANISATION
+     1. Design tokens (:root custom properties)
+     2. Base / reset / typography
+     3. Utility & a11y classes (.sr-only .skip-link .hidden .warning ...)
+     4. Global focus styles
+     5. Buttons & form controls
+     6. Layout: screens, header/toolbar, main grid columns
+     7. Setup screen
+     8. The board grid, premium squares, cursor, tiles (placed/pending)
+     9. The rack
+    10. Side panel: info / status / move log
+    11. Overlays & dialogs (help, settings, composer, preview, exchange, ...)
+    12. Scrollbars
+    13. prefers-reduced-motion / forced-colors fallbacks
+   ========================================================================= */
+
+
+/* =========================================================================
+   1. DESIGN TOKENS
+   Central palette so colours stay DRY and contrast is tuned in one place.
+   Premium-square colours are chosen to be distinct AND legible with the dark
+   text we place on them; the spoken label is always the authoritative signal.
+   ========================================================================= */
+:root {
+  /* Core surfaces & text (shared with Risk for a consistent house style). */
+  --bg:            #14161f;   /* page background (very dark navy)            */
+  --panel:        #1d2233;   /* raised panels / dialogs                     */
+  --panel-2:      #262d44;   /* nested fields inside panels                 */
+  --text:          #f2f4fb;   /* primary text — ~15:1 on --bg               */
+  --text-dim:      #c2c8dc;   /* secondary text — still >=7:1 on --bg       */
+  --accent:        #ff5d73;   /* brand accent (headings, primary buttons)   */
+  --accent-hover:  #ff7d8f;   /* accent hover                               */
+  --highlight:     #1f4a7a;   /* secondary button / subtle highlight        */
+  --success:       #4fd6a8;   /* positive state + focus ring colour         */
+  --warning:       #ffb454;   /* warnings / cautions                        */
+  --border:        #3a4467;   /* hairline borders                           */
+  --border-strong: #5a6694;   /* stronger borders (grid lines)              */
+
+  /* Premium-square fills. Each pairs with --ink (near-black) for the
+     2-letter code label, giving comfortable contrast for sighted helpers.
+     The four types are hue-separated (red / pink / blue / cyan) AND
+     value-separated (triples are deeper) so they're distinguishable even
+     under reduced colour vision — but again: never the only signal. */
+  --tw:  #c0392b;   /* Triple Word  — deep red    */
+  --dw:  #e08aa6;   /* Double Word  — pink        */
+  --tl:  #2f6db5;   /* Triple Letter— deep blue   */
+  --dl:  #8fc6ef;   /* Double Letter— light blue  */
+  --center: #f0c419; /* Centre star (a double word) — gold, stands apart    */
+  --ink: #10121a;   /* dark text used on the lighter premium fills          */
+
+  /* Tile faces. Placed (committed) tiles read as warm "wood"; pending
+     (staged this turn, not yet committed) read as a cool, dashed-outline
+     "ghost" so the two states are obviously different at a glance. */
+  --tile-bg:        #efe6cf;  /* committed tile face (parchment)            */
+  --tile-text:      #1a1205;  /* committed tile letter                      */
+  --tile-pending-bg:#16384a;  /* pending tile face (teal)                   */
+  --tile-pending-text:#e8f7ff;/* pending tile letter                        */
+  --tile-pending-edge:#5fe0c8;/* pending tile dashed outline                */
+  --blank-edge:     #b06bff;  /* accent ring marking a blank tile           */
+
+  /* Geometry. --cell drives the whole board size; it shrinks on small
+     screens via clamp() so the 15x15 grid stays on-screen without scroll. */
+  --cell: clamp(26px, 5.6vmin, 46px); /* one board square (square aspect)   */
+  --radius:   8px;            /* panel / dialog corner radius               */
+  --radius-sm:4px;            /* small controls / tiles                     */
+  --focus-w:  3px;            /* focus outline thickness                    */
+  --gap:      20px;           /* default layout gap                         */
+}
+
+
+/* =========================================================================
+   2. BASE / RESET / TYPOGRAPHY
+   ========================================================================= */
+*, *::before, *::after { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  padding: 20px;
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+  /* System font stack — fast, familiar, and crisp at large sizes. */
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, system-ui, sans-serif;
+  font-size: 18px;            /* large, readable base for low-vision users  */
+  line-height: 1.6;
+}
+
+/* Headings use the accent colour; reset top margin so panels pack tightly. */
+h1, h2, h3, h4 { margin-top: 0; color: var(--accent); line-height: 1.25; }
+h1 { font-size: 2rem; }
+h2 { font-size: 1.4rem; }
+h3 { font-size: 1.15rem; }
+
+p { margin: 0.5em 0; }
+
+/* <kbd> styling for the inline key hints used in the setup copy & help. */
+kbd {
+  display: inline-block;
+  padding: 1px 7px;
+  border: 1px solid var(--border-strong);
+  border-bottom-width: 2px;            /* subtle "keycap" depth             */
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+  color: var(--text);
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.85em;
+  line-height: 1.4;
+}
+
+/* Keep the whole app centred and bounded on very wide monitors. */
+.container { max-width: 1400px; margin: 0 auto; }
+
+
+/* =========================================================================
+   3. UTILITY & ACCESSIBILITY CLASSES
+   These three (.sr-only, .skip-link, .hidden) are explicitly required by the
+   brief and used throughout index.html and the JS modules.
+   ========================================================================= */
+
+/* Visually hidden but available to assistive tech (live regions, labels). */
+.sr-only {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Skip links: off-screen until focused, then slide into the top-left so a
+   keyboard user can jump straight to board / rack / info (Risk pattern). */
+.skip-link {
+  position: absolute;
+  top: -48px; left: 8px;
+  z-index: 1100;
+  padding: 10px 18px;
+  background: var(--accent);
+  color: #fff;
+  font-weight: bold;
+  text-decoration: none;
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+  transition: top 0.15s ease;
+}
+.skip-link:focus { top: 0; outline: var(--focus-w) solid var(--success); outline-offset: 2px; }
+
+/* Universal hide toggle used by every overlay and many controls. The
+   !important guarantees it always wins over a competing display rule. */
+.hidden { display: none !important; }
+
+/* Inline warnings (e.g. "Speech synthesis unavailable"). */
+.warning { color: var(--warning); font-weight: bold; }
+
+/* Status line under the setup buttons ("Loading dictionary…"). */
+.loading-status { min-height: 1.4em; color: var(--text-dim); font-style: italic; }
+
+
+/* =========================================================================
+   4. GLOBAL FOCUS STYLES
+   A visible focus indicator EVERYWHERE — non-negotiable for keyboard-only
+   play. We use :focus-visible so mouse clicks don't show a ring, but ALSO
+   give a plain :focus fallback for older engines. The board cursor has its
+   own stronger treatment in §8.
+   ========================================================================= */
+:focus { outline: var(--focus-w) solid var(--success); outline-offset: 2px; }
+:focus:not(:focus-visible) { outline: none; }      /* drop ring for pointer */
+:focus-visible { outline: var(--focus-w) solid var(--success); outline-offset: 2px; }
+
+
+/* =========================================================================
+   5. BUTTONS & FORM CONTROLS
+   ========================================================================= */
+button {
+  background: var(--accent);
+  color: #fff;
+  border: 1px solid transparent;
+  padding: 12px 22px;
+  font-size: 1rem;
+  font-family: inherit;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 0.18s ease, transform 0.08s ease;
+}
+button:hover  { background: var(--accent-hover); }
+button:active { transform: scale(0.97); }          /* tactile press feel     */
+button:disabled { background: #4a5068; color: #aab; cursor: not-allowed; transform: none; }
+
+/* Secondary (cancel/back) and small (toolbar) button variants. */
+.btn-secondary { background: var(--highlight); }
+.btn-secondary:hover { background: #285d97; }
+.btn-small { padding: 8px 14px; font-size: 0.9rem; }
+
+/* Toolbar toggle buttons (Voice/ARIA/Sound) reflect state via aria-pressed.
+   aria-pressed is the authoritative on/off signal; this is sighted-assist
+   colour only — green when on, dim when off. */
+[aria-pressed="true"]  { background: var(--success); color: var(--ink); border-color: var(--success); }
+[aria-pressed="false"] { background: var(--panel-2); color: var(--text-dim); border-color: var(--border); }
+
+/* A row of buttons (setup actions, dialog footers). */
+.button-row, .dialog-buttons { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
+
+/* Text inputs, selects, ranges — consistent dark fields, large hit areas. */
+input[type="text"],
+input[type="number"],
+select {
+  width: 100%;
+  padding: 11px 12px;
+  font-size: 1rem;
+  font-family: inherit;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+}
+input[type="text"]:focus,
+input[type="number"]:focus,
+select:focus { border-color: var(--success); }
+
+/* Range sliders: full width with a comfortably large thumb. */
+input[type="range"] { width: 100%; height: 28px; accent-color: var(--accent); cursor: pointer; }
+
+/* Checkboxes: enlarged for easy targeting; label rows align nicely. */
+input[type="checkbox"] { width: 22px; height: 22px; accent-color: var(--accent); cursor: pointer; }
+.checkbox-label { display: flex; align-items: center; gap: 10px; margin: 12px 0; cursor: pointer; }
+.checkbox-label input[type="checkbox"] { flex: 0 0 auto; }
+
+
+/* =========================================================================
+   6. LAYOUT — SCREENS, HEADER/TOOLBAR, MAIN COLUMNS
+   ========================================================================= */
+
+/* Each top-level view (.screen) — only one is visible; the other carries
+   .hidden. Center them within the container. */
+.screen { width: 100%; }
+
+/* Game header / toolbar bar. */
+.game-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: var(--gap);
+  padding: 16px 20px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.game-title { margin: 0; font-size: 1.6rem; }
+.header-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+
+/* Turn indicator & timer read as quiet status text (their values are also
+   spoken; aria-live is off on these per index.html, so this is visual only). */
+#turn-indicator { font-weight: bold; color: var(--warning); }
+#timer { color: var(--text-dim); font-variant-numeric: tabular-nums; }
+
+/* Main play area: board on the left, side panel on the right. Collapses to a
+   single column on narrow viewports so nothing is clipped. */
+.game-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  gap: var(--gap);
+  align-items: start;
+}
+@media (max-width: 1100px) { .game-main { grid-template-columns: minmax(0, 1fr) 300px; } }
+@media (max-width: 860px)  { .game-main { grid-template-columns: 1fr; } }
+
+
+/* =========================================================================
+   7. SETUP SCREEN
+   ========================================================================= */
+#setup-screen {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 28px 30px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+/* Grouped option blocks (player, opponents, speech, other). */
+.setup-section {
+  margin: 18px 0;
+  padding: 16px 18px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.setup-section > h2 { font-size: 1.15rem; margin-bottom: 6px; }
+
+/* Labels sit on their own line above the control they describe. The
+   checkbox-label rule in §5 overrides this for inline checkbox rows. */
+#setup-screen label:not(.checkbox-label) {
+  display: block;
+  margin: 14px 0 5px;
+  font-weight: bold;
+}
+/* The first label in a section shouldn't push extra space at the top. */
+.setup-section > label:not(.checkbox-label):first-of-type { margin-top: 0; }
+
+/* The live numeric read-out beside the speech-rate slider. */
+#rate-value { color: var(--success); font-variant-numeric: tabular-nums; }
+
+
+/* =========================================================================
+   8. THE BOARD
+   index.html: #board (role=application) wraps #board-grid (role=grid).
+   board.js builds role=row > role=gridcell inside #board-grid. This section
+   sets the visual contract those cells rely on:
+     - .premium-TW / -DW / -TL / -DL and .center for premium squares
+     - .placed for a committed tile, .pending for a staged tile
+     - .cursor AND [aria-current] for the active square (both supported so
+       board.js may use either mechanism)
+   ========================================================================= */
+
+/* Board frame. role="application" + tabindex=0 means it can hold DOM focus;
+   give it a clear ring so a sighted helper sees when the board is active. */
+#board {
+  padding: 12px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  /* Center the fixed-size grid within the flexible column. */
+  display: flex;
+  justify-content: center;
+  overflow: auto;                      /* last-resort scroll on tiny screens */
+}
+#board:focus-visible { outline: var(--focus-w) solid var(--success); outline-offset: 3px; }
+
+/* The 15x15 grid itself. Explicit 15 equal tracks keeps every square truly
+   square (width == height == --cell) and the lines crisp. */
+#board-grid {
+  display: grid;
+  grid-template-columns: repeat(15, var(--cell));
+  grid-auto-rows: var(--cell);
+  gap: 2px;                            /* thin gutters draw the grid lines   */
+  background: var(--border-strong);   /* shows through the gaps as gridlines */
+  border: 2px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+}
+
+/* A row wrapper, if board.js nests role="row" elements: make it contents so
+   the gridcells participate directly in the parent grid (keeps alignment).
+   Harmless if rows aren't used. */
+#board-grid [role="row"] { display: contents; }
+
+/* Base square. Plain (non-premium, empty) squares are the neutral board
+   colour. Letters/codes are centred and bold for legibility. */
+#board-grid [role="gridcell"] {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--cell);
+  height: var(--cell);
+  background: #2a3047;                 /* neutral empty square               */
+  color: var(--text-dim);
+  font-weight: bold;
+  font-size: calc(var(--cell) * 0.42);
+  line-height: 1;
+  user-select: none;
+  /* Only animate the cursor/scale change, and only when motion is allowed
+     (see §13). Keeps cursor movement feeling responsive, not janky. */
+  transition: outline-color 0.1s ease, transform 0.1s ease;
+}
+
+/* -- Premium squares (sighted-assist colour; code text is also in DOM). --
+   We render the 2-letter code at a smaller size so it never crowds a placed
+   tile's letter (a placed/pending tile sits on top and hides the code). */
+#board-grid .premium-TW,
+#board-grid .premium-DW,
+#board-grid .premium-TL,
+#board-grid .premium-DL,
+#board-grid .center { color: var(--ink); font-size: calc(var(--cell) * 0.30); }
+
+#board-grid .premium-TW { background: var(--tw); color: #fff; } /* red needs light text */
+#board-grid .premium-DW { background: var(--dw); }
+#board-grid .premium-TL { background: var(--tl); color: #fff; } /* blue needs light text */
+#board-grid .premium-DL { background: var(--dl); }
+
+/* Centre square (H8). Gold, with a star glyph for sighted helpers; the cell's
+   aria-label still says "center double word score". ::before draws the star
+   only when the square is empty (no placed/pending tile covering it). */
+#board-grid .center { background: var(--center); }
+#board-grid .center:not(.placed):not(.pending)::before {
+  content: "\2605";                    /* ★ black star                       */
+  font-size: calc(var(--cell) * 0.5);
+  color: var(--ink);
+}
+
+/* -- Tiles on the board --
+   .placed = committed tile (warm parchment). .pending = staged this turn
+   (cool teal with a dashed outline). Both fully cover the square so the
+   premium colour/code beneath is replaced by the tile face — exactly like a
+   physical tile sitting on the board. Distinct fills + the dashed edge make
+   "mine, not yet committed" obvious without relying on colour alone. */
+#board-grid .placed,
+#board-grid .pending {
+  border-radius: var(--radius-sm);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.25);
+  font-size: calc(var(--cell) * 0.46);
+}
+#board-grid .placed  { background: var(--tile-bg);         color: var(--tile-text); }
+#board-grid .pending { background: var(--tile-pending-bg); color: var(--tile-pending-text);
+                       outline: 2px dashed var(--tile-pending-edge); outline-offset: -3px; }
+
+/* Tiny point value in a tile's corner, if the renderer adds a <sub>/<small>.
+   Optional — labels carry points in speech regardless. */
+#board-grid .placed small,
+#board-grid .pending small,
+#rack .tile small {
+  position: absolute;
+  right: 2px; bottom: 1px;
+  font-size: 0.5em;
+  font-weight: bold;
+  opacity: 0.85;
+}
+
+/* Blank tiles (no intrinsic letter) get an accent ring so helpers can spot
+   the wildcard; speech says "blank as E". Works on board and rack. */
+#board-grid .blank,
+#rack .tile.blank { box-shadow: inset 0 0 0 2px var(--blank-edge); }
+
+/* -- The CURSOR (active gridcell) --
+   The single most important visual on the board. board.js may mark it with
+   the .cursor class and/or aria-current; we style BOTH identically so either
+   works. A thick high-contrast ring + slight lift makes it unmistakable, and
+   it sits above neighbours via z-index so the ring is never clipped. */
+#board-grid .cursor,
+#board-grid [aria-current],
+#board-grid [aria-current="true"] {
+  outline: var(--focus-w) solid var(--success);
+  outline-offset: -1px;
+  box-shadow: 0 0 0 2px var(--bg), 0 0 0 5px var(--success); /* halo for contrast on any fill */
+  z-index: 2;
+  transform: scale(1.06);
+}
+
+
+/* =========================================================================
+   9. THE RACK
+   index.html: <ul id="rack" role="list"> filled by SC.UI with up to 7 tiles.
+   Render as a horizontal row of parchment tiles, each large and high-contrast.
+   ========================================================================= */
+#rack {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 4px;
+  padding: 12px;
+  list-style: none;                    /* role=list already conveys semantics */
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  min-height: calc(var(--cell) + 24px);/* keeps height stable when empty      */
+}
+
+/* A rack tile. Square, parchment, bold letter — visually echoes a board
+   .placed tile so the connection is obvious. The renderer's element gets the
+   .tile class; we also defensively style direct <li> children the same. */
+#rack .tile,
+#rack > li {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--cell);
+  height: var(--cell);
+  background: var(--tile-bg);
+  color: var(--tile-text);
+  font-weight: bold;
+  font-size: calc(var(--cell) * 0.46);
+  border-radius: var(--radius-sm);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.25);
+  user-select: none;
+}
+
+/* If a rack tile is focusable/selectable (e.g. for exchange marking), show a
+   clear selected state — colour PLUS a check-style outline so it's not
+   colour-only. .selected is the expected contract class from SC.UI. */
+#rack .tile.selected,
+#rack > li[aria-selected="true"] {
+  outline: var(--focus-w) solid var(--accent);
+  outline-offset: 2px;
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+
+/* =========================================================================
+   10. SIDE PANEL — INFO / STATUS / MOVE LOG
+   ========================================================================= */
+.side-panel { display: flex; flex-direction: column; gap: 14px; }
+
+/* Section headings inside the panel. */
+.panel-heading { font-size: 1.05rem; margin: 4px 0 -4px; }
+
+/* The status box (#info-panel, role=status) — scores, bag, turn. tabindex=-1
+   means the S key can focus it; show a ring when it does. */
+#info-panel {
+  padding: 14px 16px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+#info-panel:focus-visible { outline: var(--focus-w) solid var(--success); outline-offset: 2px; }
+#info-panel > div { font-size: 1rem; }
+#scores { font-weight: bold; color: var(--text); }
+#bag-count, #turn-number { color: var(--text-dim); }
+
+/* Move log: a scrollable list of recent plays (most-recent-first per spec). */
+.move-log {
+  list-style: none;
+  margin: 0;
+  padding: 10px 12px;
+  max-height: 240px;
+  overflow-y: auto;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 0.95rem;
+}
+.move-log li {
+  padding: 6px 4px;
+  border-bottom: 1px solid var(--border);
+}
+.move-log li:last-child { border-bottom: none; }
+/* First entry (newest) gently emphasised for sighted scanning. */
+.move-log li:first-child { color: var(--text); font-weight: bold; }
+
+
+/* =========================================================================
+   11. OVERLAYS & DIALOGS
+   index.html: each overlay is .overlay (full-screen dimmed backdrop) holding
+   a .dialog (role=dialog, aria-modal). .hidden toggles visibility. Covers
+   help, settings, composer, preview, exchange, jump, game-over.
+   ========================================================================= */
+
+/* The dimmed, scrollable backdrop, centred over everything. */
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(0, 0, 0, 0.78);     /* dim the game behind                */
+  overflow-y: auto;
+}
+
+/* The dialog card. Bordered in accent so it clearly reads as a modal; capped
+   height with internal scroll for long content (help / settings). */
+.dialog {
+  width: 100%;
+  max-width: 620px;
+  max-height: 90vh;
+  overflow-y: auto;
+  padding: 26px 28px;
+  background: var(--panel);
+  border: 2px solid var(--accent);
+  border-radius: var(--radius);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+}
+.dialog h2 { margin-bottom: 12px; }
+.dialog label { display: block; margin: 14px 0 5px; font-weight: bold; }
+
+/* Dialog text inputs are a touch larger — these are primary interactions
+   (typing a word, a coordinate). */
+.dialog input[type="text"],
+.dialog input[type="number"] { font-size: 1.15rem; padding: 12px; margin: 8px 0; }
+
+/* Help overlay key reference: a two-column key/description grid (board.js/
+   ui.js fill #help-body). .key-list + .key-name are the expected classes. */
+.key-list {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px 18px;
+  margin: 14px 0;
+}
+.key-name {
+  padding: 4px 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-weight: bold;
+  white-space: nowrap;
+}
+
+/* Composer / preview live-text regions: give the running parse + score a
+   distinct, readable inset so sighted helpers can follow along (the SR reads
+   it via aria-live). */
+#composer-preview,
+#preview-text,
+#gameover-text {
+  margin: 12px 0;
+  padding: 12px 14px;
+  min-height: 1.6em;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--success);   /* accent edge = "live result"   */
+  border-radius: var(--radius-sm);
+  font-size: 1.05rem;
+}
+#composer-context, #composer-direction { color: var(--text-dim); }
+#composer-direction { color: var(--success); font-weight: bold; }
+
+/* Exchange overlay tile tray (#exchange-body filled by SC.UI). Lay the
+   togglable tiles out in a centred row; they reuse the .tile look from §9. */
+#exchange-body {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  margin: 12px 0;
+  min-height: var(--cell);
+}
+#exchange-body .tile {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--cell);
+  height: var(--cell);
+  background: var(--tile-bg);
+  color: var(--tile-text);
+  font-weight: bold;
+  font-size: calc(var(--cell) * 0.46);
+  border-radius: var(--radius-sm);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.25);
+  cursor: pointer;
+}
+/* Marked-for-exchange state: colour + outline (not colour-only). */
+#exchange-body .tile.selected,
+#exchange-body .tile[aria-pressed="true"] {
+  outline: var(--focus-w) solid var(--accent);
+  outline-offset: 2px;
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+
+/* =========================================================================
+   12. SCROLLBARS (WebKit) — themed to match the dark UI.
+   ========================================================================= */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 5px; }
+::-webkit-scrollbar-thumb:hover { background: var(--border-strong); }
+
+
+/* =========================================================================
+   13. MOTION & FORCED-COLORS FALLBACKS
+   ========================================================================= */
+
+/* Respect users who ask for reduced motion: kill all transitions/animations
+   and the cursor's scale "pop" so movement is instantaneous and still. The
+   cursor's ring/halo remain (they're not motion), so it's just as visible. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+  #board-grid .cursor,
+  #board-grid [aria-current],
+  #board-grid [aria-current="true"] { transform: none; } /* no scale pop     */
+}
+
+/* Windows High Contrast / forced-colors: rely on system colours and keep a
+   visible cursor ring + premium borders, since our custom fills are dropped.
+   Premium squares get a distinct border so the FOUR types remain
+   differentiable (the spoken label is still the real signal). */
+@media (forced-colors: active) {
+  #board-grid [role="gridcell"] { border: 1px solid CanvasText; }
+  #board-grid .premium-TW,
+  #board-grid .premium-TL { border-width: 3px; border-style: double; } /* triples: bolder */
+  #board-grid .premium-DW,
+  #board-grid .premium-DL { border-width: 2px; }
+  #board-grid .center     { border-style: dashed; border-width: 3px; }
+  #board-grid .pending    { outline: 2px dashed CanvasText; }          /* staged stays distinct */
+  #board-grid .cursor,
+  #board-grid [aria-current],
+  #board-grid [aria-current="true"],
+  :focus-visible          { outline: 3px solid Highlight; outline-offset: 2px; }
+}

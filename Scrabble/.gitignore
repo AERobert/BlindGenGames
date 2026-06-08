@@ -1,0 +1,10 @@
+# Planning documents — kept local, not part of the committed game.
+SCRABBLE_RULES.md
+INTERFACE_DESIGN.md
+research/
+tests/
+words.txt
+
+# ARCHITECTURE.md is intentionally NOT ignored — it documents the codebase.
+# Note: dictionary.json and js/dictionary-data.js are NOT ignored either; they
+# are part of the game and will be committed with the prototype.
